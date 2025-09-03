@@ -66,7 +66,7 @@ inline constinit auto _user_reg = NGIN::Reflection::auto_register<User>();
   - No raw pointers cross DLL boundaries.
 - Registry is a contiguous, read‑only blob after construction; strings are interned once per registry.
 - Cross‑DLL export uses a versioned C ABI shim:
-  - `extern "C" bool ngin_reflection_export_v1(ngin_refl_registry_v1* out) noexcept;`
+  - `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out) noexcept;`
   - Host merges module tables; version checked, endianness validated.
 - Error model: `std::expected<T, Error>`; library does not throw.
 
@@ -106,9 +106,11 @@ We will keep these extensions minimal and propose them via PRs to NGIN.Base as w
 ## Implementation Phases
 
 Phase 0 — Bootstrap (done)
+
 - Repo scaffold, CI build, tests, examples, package config.
 
 Phase 1 — MVP (single‑module, no DLL)
+
 - Public headers: tags, handles, `Builder<T>`, `type_of<T>()`, queries by name/TypeId.
 - Registry: immutable blob; string interning placeholder; name and TypeId → Type lookup.
 - Members: reflect public fields; field attributes; get_mut/get_const; `Field::set_any` (type‑checked, size‑checked memcpy for POD); `Field::attribute*`.
@@ -119,6 +121,7 @@ Phase 1 — MVP (single‑module, no DLL)
 - Benchmarks: simple microbenchmarks with NGIN.Base `Benchmark` harness.
 
 Phase 2 — Methods & Invocation
+
 - Overload buckets by name; signature matching and safe conversions.
 - Invocation via `std::span<const Any>` → `std::expected<Any, Error>`.
 - Constructor descriptors and default construction, where viable.
@@ -126,22 +129,26 @@ Phase 2 — Methods & Invocation
 - Benchmarks using NGIN.Base benchmarking scaffolding.
 
 Phase 3 — Cross‑DLL Registry
-- ABI structs for registry and function pointer table; exported C entrypoint (`ngin_reflection_export_v1`) defined in `include/NGIN/Reflection/ABI.hpp`.
+
+- ABI structs for registry and function pointer table; exported C entrypoint (`NGINReflectionExportV1`) defined in `include/NGIN/Reflection/ABI.hpp`.
 - Merge logic, deduplication by TypeId, conflict diagnostics.
 - Stable index handles; ensure no raw pointers leak across modules.
 - Interop tests with two shared libraries built and loaded at runtime.
 
 Phase 4 — Attributes & Codegen Hooks
+
 - Attribute storage (bool/int64/double/string/TypeId/blob).
 - `[[using ngin: reflect, ...]]` vendor attributes consumed by a separate scanner tool.
 - `ngin-reflect-scan` prototype (libclang‑based) generating ADL friend + `auto_register` glue headers.
 
 Phase 5 — Performance & Memory Polish
+
 - Interning and table layout tuning, cache alignment, optional hash indexes.
 - Eliminate dynamic allocations in hot paths; leverage NGIN.Base allocators.
 - Lock‑free reads after merge; one‑time merge with clear fencing.
 
 Phase 6 — Documentation & Samples
+
 - 10+ examples: quick‑start, fields, methods, adapters, DLL plugins, custom attributes.
 - Guides: extending descriptors, writing adapters, integration into tools.
 
