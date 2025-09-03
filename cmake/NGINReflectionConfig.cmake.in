@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(NGINBase)
+
+include("${CMAKE_CURRENT_LIST_DIR}/NGINReflectionTargets.cmake")
+

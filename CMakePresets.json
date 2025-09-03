@@ -1,0 +1,141 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20
+  },
+  "configurePresets": [
+    {
+      "name": "development",
+      "description": "Library-only (tests OFF)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/development",
+      "cacheVariables": {
+        "NGIN_REFLECTION_BUILD_TESTS": "OFF",
+        "NGIN_BASE_BUILD_TESTS": "OFF",
+        "NGIN_BASE_BUILD_EXAMPLES": "OFF",
+        "NGIN_BASE_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
+      "name": "tests",
+      "description": "Build tests",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/tests",
+      "cacheVariables": {
+        "NGIN_REFLECTION_BUILD_TESTS": "ON",
+        "NGIN_BASE_BUILD_TESTS": "OFF",
+        "NGIN_BASE_BUILD_EXAMPLES": "OFF",
+        "NGIN_BASE_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
+      "name": "install",
+      "description": "Configure for packaging & install",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/install",
+      "cacheVariables": {
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/out/install",
+        "NGIN_REFLECTION_BUILD_TESTS": "OFF",
+        "NGIN_BASE_BUILD_TESTS": "OFF",
+        "NGIN_BASE_BUILD_EXAMPLES": "OFF",
+        "NGIN_BASE_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
+      "name": "examples",
+      "description": "Build examples",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/examples",
+      "cacheVariables": {
+        "NGIN_REFLECTION_BUILD_TESTS": "OFF",
+        "NGIN_REFLECTION_BUILD_EXAMPLES": "ON",
+        "NGIN_BASE_BUILD_TESTS": "OFF",
+        "NGIN_BASE_BUILD_EXAMPLES": "OFF",
+        "NGIN_BASE_BUILD_BENCHMARKS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "development-debug",
+      "configurePreset": "development",
+      "description": "Build library only (Debug)",
+      "configuration": "Debug",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    },
+    {
+      "name": "development-release",
+      "configurePreset": "development",
+      "description": "Build library only (Release)",
+      "configuration": "Release",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    },
+    {
+      "name": "tests-debug",
+      "configurePreset": "tests",
+      "description": "Build tests (Debug)",
+      "configuration": "Debug",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    },
+    {
+      "name": "tests-release",
+      "configurePreset": "tests",
+      "description": "Build tests (Release)",
+      "configuration": "Release",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    },
+    {
+      "name": "install-debug",
+      "configurePreset": "install",
+      "description": "Build install target (Debug)",
+      "configuration": "Debug",
+      "jobs": 4,
+      "targets": [
+        "install"
+      ]
+    },
+    {
+      "name": "install-release",
+      "configurePreset": "install",
+      "description": "Build install target (Release)",
+      "configuration": "Release",
+      "jobs": 4,
+      "targets": [
+        "install"
+      ]
+    },
+    {
+      "name": "examples-debug",
+      "configurePreset": "examples",
+      "description": "Build examples (Debug)",
+      "configuration": "Debug",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    },
+    {
+      "name": "examples-release",
+      "configurePreset": "examples",
+      "description": "Build examples (Release)",
+      "configuration": "Release",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    }
+  ]
+}
