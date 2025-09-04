@@ -4,17 +4,20 @@
 using namespace NGIN::Reflection;
 using namespace NGIN::Reflection::detail;
 
-extern "C" bool ngin_reflection_export_v1(ngin_refl_registry_v1* out) {
-  if (!out) return false;
+extern "C" bool ngin_reflection_export_v1(ngin_refl_registry_v1 *out)
+{
+  if (!out)
+    return false;
   static ngin_refl_header_v1 header{};
-  const auto& reg = GetRegistry();
+  const auto &reg = GetRegistry();
   header.version = 1u;
   header.type_count = reg.types.Size();
   std::uint64_t fields = 0, methods = 0, attrs = 0;
-  for (NGIN::UIntSize i=0;i<reg.types.Size();++i) {
+  for (NGIN::UIntSize i = 0; i < reg.types.Size(); ++i)
+  {
     fields += reg.types[i].fields.Size();
     methods += reg.types[i].methods.Size();
-    attrs   += reg.types[i].attributes.Size();
+    attrs += reg.types[i].attributes.Size();
   }
   header.field_count = fields;
   header.method_count = methods;
@@ -23,4 +26,3 @@ extern "C" bool ngin_reflection_export_v1(ngin_refl_registry_v1* out) {
   out->blob = nullptr; // TODO: attach contiguous blob when implemented
   return true;
 }
-
