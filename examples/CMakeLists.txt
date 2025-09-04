@@ -3,3 +3,4 @@ project(NGINReflectionExamples LANGUAGES CXX)
 
 add_subdirectory(QuickStart)
 add_subdirectory(Adapters)
+add_subdirectory(Methods)

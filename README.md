@@ -1,6 +1,6 @@
 # NGIN.Reflection — Architecture & Implementation Plan
 
-This document tailors the earlier requirements to the NGIN ecosystem and outlines how we will design and implement NGIN.Reflection as a performant, portable, macro‑free runtime reflection library with first‑class cross‑DLL support and a path to codegen/tooling.
+This document describes NGIN.Reflection, a performant, portable, macro‑free runtime reflection library for the NGIN ecosystem with a clear path to cross‑DLL support and optional tooling/codegen. It reflects the current implementation status and roadmap.
 
 ## Goals In The NGIN Ecosystem
 
@@ -16,19 +16,19 @@ This document tailors the earlier requirements to the NGIN ecosystem and outline
   - Public headers: descriptors, handles, builder DSL, ADL hooks.
   - Compiled core: registry blob, string interning, method thunking, cross‑DLL export/merge, Any SBO storage.
 - Targets: `NGIN::Reflection` (static/shared via `BUILD_SHARED_LIBS`).
-- Options: `NGIN_REFLECTION_BUILD_TESTS`, `NGIN_REFLECTION_BUILD_EXAMPLES`, `NGIN_REFLECTION_ENABLE_CODEGEN` (default OFF).
+- Options: `NGIN_REFLECTION_BUILD_TESTS`, `NGIN_REFLECTION_BUILD_EXAMPLES`, `NGIN_REFLECTION_BUILD_BENCHMARKS`, `NGIN_REFLECTION_ENABLE_CODEGEN` (default OFF).
 
 ## Dependencies (NGIN.Base First)
 
 We will lean on NGIN.Base for fundamental types and utilities and only use the standard library where unavoidable (views/expected/span):
 
-- Names/IDs: `NGIN::Meta::TypeName` and `NGIN::Meta::TypeId` (currently 64‑bit FNV‑1a).
+- Names/IDs: `NGIN::Meta::TypeName` + FNV‑1a (64‑bit) computed over canonical type names (stable across modules/compilers).
 - Containers: `NGIN::Containers::Vector`, `NGIN::Containers::FlatHashMap`.
 - Traits/Introspection: `NGIN::Meta::TypeTraits`, `NGIN::FunctionTraits`.
 - Primitives/Defines: `NGIN::Primitives`, platform defines from `NGIN::Defines`.
 - Concurrency/Atomics: `NGIN::Thread`, `NGIN::AtomicCondition` if needed during merge.
 
-Minimal STL usage: `std::string_view`, `std::span`, `std::expected`, `std::variant` for attribute values where beneficial. We avoid `std::string`, dynamic STL containers, and `typeid` in the core.
+Minimal STL usage: `std::string_view`, `std::expected`, and small `std::variant` for attributes. We avoid owning `std::string`, dynamic STL containers, and `typeid` in the core.
 
 ## Public API Principles (No Macros)
 
@@ -42,21 +42,22 @@ Sketch (namespaced to NGIN):
 #include <NGIN/Reflection/Reflection.hpp>
 
 struct User {
-  int id{}; NGIN::Containers::BasicString<char, 64> name{};
+  int id{};
+  float score{};
 
-  NGIN_ALWAYS_INLINE auto greet(std::string_view to) const { return "hi " + std::string(to); }
-
-  friend consteval auto ngin_reflect(NGIN::Reflection::tag<User>) {
-    using NGIN::Reflection::Builder;
-    auto b = Builder<User>{ .name = "User", .ns = "example" };
+  friend void ngin_reflect(NGIN::Reflection::tag<User>, NGIN::Reflection::Builder<User>& b) {
+    b.set_name("Demo::User");
     b.field<&User::id>("id");
-    b.field<&User::name>("name");
-    b.method<&User::greet>("greet");
-    return b.build();
+    b.field<&User::score>("score");
   }
 };
 
-inline constinit auto _user_reg = NGIN::Reflection::auto_register<User>();
+// Query and use
+auto t = NGIN::Reflection::type_of<User>();
+auto f = t.GetField("id").value();
+User u{};
+(void)f.set_any(&u, NGIN::Reflection::Any::make(42));
+auto v = f.get_any(&u).as<int>(); // 42
 ```
 
 ## Core Model & ABI Strategy
@@ -66,7 +67,7 @@ inline constinit auto _user_reg = NGIN::Reflection::auto_register<User>();
   - No raw pointers cross DLL boundaries.
 - Registry is a contiguous, read‑only blob after construction; strings are interned once per registry.
 - Cross‑DLL export uses a versioned C ABI shim:
-  - `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out) noexcept;`
+  - `extern "C" bool ngin_reflection_export_v1(ngin_refl_registry_v1* out) noexcept;`
   - Host merges module tables; version checked, endianness validated.
 - Error model: `std::expected<T, Error>`; library does not throw.
 
@@ -81,7 +82,7 @@ inline constinit auto _user_reg = NGIN::Reflection::auto_register<User>();
 - `Vector<T>`: `NGIN::Containers::Vector` for tables and temporary builders.
 - `StringInterner`: per‑registry pool storing unique `std::string_view` backed by one big `Vector<char>`; index‑based.
 - `HashIndex`: `FlatHashMap` from interned name id → index for O(1) average lookup.
-- `Any`: reflection‑local, SBO (e.g., 32 bytes), stores TypeId + destructor/move; does not allocate for small POD.
+- `Any`: reflection‑local, SBO 32 bytes + destructor and copy/move thunks; heap fallback via `NGIN::Memory::SystemAllocator` for larger types.
 
 ## Builder DSL → Descriptor Blob
 
@@ -109,24 +110,26 @@ Phase 0 — Bootstrap (done)
 
 - Repo scaffold, CI build, tests, examples, package config.
 
-Phase 1 — MVP (single‑module, no DLL)
+Phase 1 — MVP (single‑module, no DLL) — Implemented
 
-- Public headers: tags, handles, `Builder<T>`, `type_of<T>()`, queries by name/TypeId.
-- Registry: immutable blob; string interning placeholder; name and TypeId → Type lookup.
-- Members: reflect public fields; field attributes; get_mut/get_const; `Field::set_any` (type‑checked, size‑checked memcpy for POD); `Field::attribute*`.
-- Methods: register const/non‑const member methods; typed param/return ids; invoke via `Any*` → `expected<Any, Error>`; method attributes.
-- Any: SBO 32 bytes with heap fallback via `NGIN::Memory::SystemAllocator` for larger types.
-- Adapters: basic sequence (std::vector, NGIN::Containers::Vector), tuple, variant adapters (free‑function helpers).
-- Tests: Boost.UT suites for fields, methods, attributes, adapters.
-- Benchmarks: simple microbenchmarks with NGIN.Base `Benchmark` harness.
+- Public headers: tags, handles (`Type`, `Field`, `Method`), `Builder<T>`, `type_of<T>()`, `type(name)`.
+- Registry: process‑local immutable tables; fast name/TypeId → Type lookup.
+- Fields: reflect public data members; load/store thunks; `get_mut/get_const`; `Field::get_any/set_any`; field attributes.
+- Methods: register const member functions (explicit member pointer signature for overloads); `GetMethod`, `ResolveMethod` (overload set + scoring); method attributes.
+- Overload resolution: prefers exact > promotion > conversion, penalizes narrowing and signedness changes. Tie‑break by registration order.
+- Any: SBO 32B + heap fallback; copy supported; raw data access; type_id/size tracking.
+- Adapters: basic sequence (std::vector, `NGIN::Containers::Vector`), tuple, variant.
+- Examples: QuickStart, Adapters, Methods (overload+conversion demo).
+- Benchmarks: invoke vs direct call; set_any vs direct set; conversion invoke.
+- ABI stub: `ngin_reflection_export_v1` returns registry counts (blob TBD).
 
-Phase 2 — Methods & Invocation
+Phase 2 — Methods & Invocation (in progress)
 
-- Overload buckets by name; signature matching and safe conversions.
-- Invocation via `std::span<const Any>` → `std::expected<Any, Error>`.
-- Constructor descriptors and default construction, where viable.
-- Expand adapters (optional, map) and tuple/variant coverage; add registry‑aware container metadata.
-- Benchmarks using NGIN.Base benchmarking scaffolding.
+- Refine overload scoring (promotion vs conversion tiers; better signedness handling; tie‑break on specificity).
+- Add `std::span<const Any>` and convenience invoke overloads.
+- Constructor descriptors and default construction support.
+- Expand adapters (map/optional) and registry‑aware container metadata.
+- Benchmarks to track call and conversion overhead.
 
 Phase 3 — Cross‑DLL Registry
 
@@ -166,6 +169,12 @@ Phase 6 — Documentation & Samples
 - `NGIN::Base` resolved from installed package or sibling source (already wired).
 - Static/shared decided by `BUILD_SHARED_LIBS` (both supported); ABI export macros provided.
 
+Presets
+
+- `tests`: build and run Boost.UT suites
+- `examples`: build QuickStart, Adapters, Methods examples
+- `benchmarks`: build reflective vs direct microbenchmarks
+
 ## Acceptance Gates Per Milestone
 
 - v0.1: Type lookup by name/TypeId; field enumeration + get/set for public fields; Any; single registry; docs + examples.
@@ -174,9 +183,17 @@ Phase 6 — Documentation & Samples
 - v0.4: Scanner/codegen preview; generated code compiles warning‑free.
 - v1.0: Stabilized API/ABI; benchmarks within targets; full docs and samples.
 
-## Immediate Next Steps
+## Current API Surface (summary)
 
-- Implement header stubs: tags/handles, `Builder<T>`, registry interfaces.
-- Add string interner and process‑wide registry skeleton using NGIN containers.
-- Wire field descriptors and simple get/set for public fields.
-- Add Boost.UT tests for Phase 1 and one concrete example mirroring this plan.
+- Type: `IsValid()`, `QualifiedName()`, `GetTypeId()`, `Size()`, `Alignment()`
+- Fields: `FieldCount()`, `FieldAt(i)`, `GetField(name)`; `Field::name()`, `type_id()`, `get_mut/get_const`, `get_any/set_any`, `attribute*`
+- Methods: `MethodCount()`, `MethodAt(i)`, `GetMethod(name)`, `ResolveMethod(name, Any*, count)`; `Method::invoke`, `attribute*`
+- Registration (DSL): `b.set_name`, `b.field<&T::member>(name)`, `b.method<sig>(name)`, `b.field_attribute`, `b.method_attribute`, `b.attribute`
+- Any: `make`, `make_void`, `as<T>`, `type_id`, `size`, `raw_data`
+
+## Next Steps
+
+- Solidify overload scoring tiers and introduce tie‑break by parameter specificity.
+- Finalize contiguous registry blob with string interning and compact indices; implement import/merge.
+- Add DLL loader helpers and interop tests; document plugin authoring.
+- Grow adapters and add custom conversion hooks.

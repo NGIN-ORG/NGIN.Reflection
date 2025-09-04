@@ -4,18 +4,23 @@
 #include <iostream>
 #include <vector>
 
-namespace Demo {
-  struct Foo { int a; };
-  template<typename T>
-  struct Box { T value; };
+namespace Demo
+{
+  struct Foo
+  {
+    int a;
+  };
+  template <typename T>
+  struct Box
+  {
+    T value;
+  };
 }
 
-int main() {
+int main()
+{
   using NGIN::Reflection::LibraryName;
   std::cout << "Library: " << LibraryName() << "\n";
-
-  // Use the reflection helper implemented in this lib
-  std::cout << "TypeName_Int(): " << NGIN::Reflection::TypeName_Int() << "\n";
 
   // Use NGIN.Base Meta facilities transitively via NGIN::Reflection
   std::cout << "TypeName<Foo>::qualified: "
@@ -29,4 +34,3 @@ int main() {
 
   return 0;
 }
-

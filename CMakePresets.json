@@ -54,6 +54,20 @@
         "NGIN_BASE_BUILD_EXAMPLES": "OFF",
         "NGIN_BASE_BUILD_BENCHMARKS": "OFF"
       }
+    },
+    {
+      "name": "benchmarks",
+      "description": "Build benchmarks",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/benchmarks",
+      "cacheVariables": {
+        "NGIN_REFLECTION_BUILD_TESTS": "OFF",
+        "NGIN_REFLECTION_BUILD_EXAMPLES": "OFF",
+        "NGIN_REFLECTION_BUILD_BENCHMARKS": "ON",
+        "NGIN_BASE_BUILD_TESTS": "OFF",
+        "NGIN_BASE_BUILD_EXAMPLES": "OFF",
+        "NGIN_BASE_BUILD_BENCHMARKS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -131,6 +145,26 @@
       "name": "examples-release",
       "configurePreset": "examples",
       "description": "Build examples (Release)",
+      "configuration": "Release",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    },
+    {
+      "name": "benchmarks-debug",
+      "configurePreset": "benchmarks",
+      "description": "Build benchmarks (Debug)",
+      "configuration": "Debug",
+      "jobs": 4,
+      "targets": [
+        "all"
+      ]
+    },
+    {
+      "name": "benchmarks-release",
+      "configurePreset": "benchmarks",
+      "description": "Build benchmarks (Release)",
       "configuration": "Release",
       "jobs": 4,
       "targets": [

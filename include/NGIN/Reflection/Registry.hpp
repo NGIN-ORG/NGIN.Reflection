@@ -46,6 +46,12 @@ namespace NGIN::Reflection
 
   namespace detail
   {
+    // Compute FNV-based type id for a type
+    template<class T>
+    inline NGIN::UInt64 TypeIdOf() {
+      auto sv = NGIN::Meta::TypeName<std::remove_cv_t<std::remove_reference_t<T>>>::qualifiedName;
+      return NGIN::Hashing::FNV1a64(sv.data(), sv.size());
+    }
 
     inline std::string_view InternName(std::string_view s) noexcept { return s; }
 
@@ -79,6 +85,7 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<FieldRuntimeDesc> fields;
       NGIN::Containers::Vector<MethodRuntimeDesc> methods;
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
+      NGIN::Containers::FlatHashMap<std::string_view, NGIN::Containers::Vector<NGIN::UInt32>> methodOverloads;
     };
 
     struct Registry
@@ -261,11 +268,12 @@ namespace NGIN::Reflection
 
     [[nodiscard]] NGIN::UIntSize FieldCount() const;
     [[nodiscard]] Field FieldAt(NGIN::UIntSize i) const;
-    [[nodiscard]] ExpectedField Field(std::string_view name) const;
+    [[nodiscard]] ExpectedField GetField(std::string_view name) const;
 
     [[nodiscard]] NGIN::UIntSize MethodCount() const;
     [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const;
-    [[nodiscard]] std::expected<Method, Error> Method(std::string_view name) const;
+    [[nodiscard]] std::expected<Method, Error> GetMethod(std::string_view name) const;
+    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, const class Any* args, NGIN::UIntSize count) const;
 
     [[nodiscard]] NGIN::UIntSize AttributeCount() const;
     [[nodiscard]] AttributeView AttributeAt(NGIN::UIntSize i) const;

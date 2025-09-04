@@ -87,6 +87,31 @@ private:
 namespace detail {
   template<typename> struct MethodTraits;
   
+  template<class T>
+  inline constexpr bool is_numeric_v = std::is_arithmetic_v<std::remove_cv_t<std::remove_reference_t<T>>>;
+
+  // Try to convert Any -> To (supports exact match, arithmetic conversions)
+  template<class To>
+  inline std::expected<std::remove_cv_t<std::remove_reference_t<To>>, Error>
+  ConvertAny(const class Any& src)
+  {
+    using Dest = std::remove_cv_t<std::remove_reference_t<To>>;
+    const auto tid = src.type_id();
+    if (tid == TypeIdOf<Dest>()) {
+      return src.template as<Dest>();
+    }
+    if constexpr (is_numeric_v<Dest>) {
+      if (tid == TypeIdOf<bool>())   return static_cast<Dest>(src.template as<bool>());
+      if (tid == TypeIdOf<int>())    return static_cast<Dest>(src.template as<int>());
+      if (tid == TypeIdOf<unsigned int>()) return static_cast<Dest>(src.template as<unsigned int>());
+      if (tid == TypeIdOf<long long>())    return static_cast<Dest>(src.template as<long long>());
+      if (tid == TypeIdOf<unsigned long long>()) return static_cast<Dest>(src.template as<unsigned long long>());
+      if (tid == TypeIdOf<float>())  return static_cast<Dest>(src.template as<float>());
+      if (tid == TypeIdOf<double>()) return static_cast<Dest>(src.template as<double>());
+    }
+    return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type not convertible"});
+  }
+  
   template<std::size_t I, class Tuple>
   inline NGIN::UInt64 param_type_id() {
     using Arg = std::remove_cv_t<std::remove_reference_t<std::tuple_element_t<I, Tuple>>>;
@@ -113,13 +138,16 @@ namespace detail {
   private:
     template<auto MemFn, std::size_t... I>
     static std::expected<class Any, Error> call(C* c, const class Any* args, std::index_sequence<I...>) {
-      if constexpr (std::is_void_v<R>) {
-        (c->*MemFn)(args[I].template as<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-        return Any::make_void();
-      } else {
-        auto r = (c->*MemFn)(args[I].template as<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-        return Any::make(std::move(r));
+      if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...)) {
+        if constexpr (std::is_void_v<R>) {
+          (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
+          return Any::make_void();
+        } else {
+          auto r = (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
+          return Any::make(std::move(r));
+        }
       }
+      return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
     }
   };
 
@@ -137,13 +165,16 @@ namespace detail {
   private:
     template<auto MemFn, std::size_t... I>
     static std::expected<class Any, Error> call(const C* c, const class Any* args, std::index_sequence<I...>) {
-      if constexpr (std::is_void_v<R>) {
-        (c->*MemFn)(args[I].template as<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-        return Any::make_void();
-      } else {
-        auto r = (c->*MemFn)(args[I].template as<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-        return Any::make(std::move(r));
+      if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...)) {
+        if constexpr (std::is_void_v<R>) {
+          (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
+          return Any::make_void();
+        } else {
+          auto r = (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
+          return Any::make(std::move(r));
+        }
       }
+      return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
     }
   };
 } // namespace detail
@@ -172,6 +203,16 @@ inline Builder<T>& Builder<T>::method(std::string_view name) {
   // Invoker
   m.invoke = &Traits::template Invoke<MemFn>;
   reg.types[m_index].methods.PushBack(std::move(m));
+  // Add to overload set map
+  auto& tdesc = reg.types[m_index];
+  const auto newIndex = static_cast<NGIN::UInt32>(tdesc.methods.Size() - 1);
+  auto* vecPtr = tdesc.methodOverloads.GetPtr(tdesc.methods[newIndex].name);
+  if (!vecPtr) {
+    NGIN::Containers::Vector<NGIN::UInt32> v; v.PushBack(newIndex);
+    tdesc.methodOverloads.Insert(tdesc.methods[newIndex].name, std::move(v));
+  } else {
+    vecPtr->PushBack(newIndex);
+  }
   return *this;
 }
 

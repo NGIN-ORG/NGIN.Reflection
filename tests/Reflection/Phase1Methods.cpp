@@ -33,7 +33,7 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
   "Method_Invoke_Int"_test = []
   {
     auto t = type_of<Calc>();
-    auto m = t.Method("add").value();
+    auto m = t.GetMethod("add").value();
     expect(eq(m.param_count(), NGIN::UIntSize{1}));
 
     Calc c{2};
@@ -46,7 +46,7 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
   {
     Calc c{1};
     auto t = type_of<Calc>();
-    auto fexp = t.Field("base");
+    auto fexp = t.GetField("base");
     expect(fexp.has_value());
     auto f = fexp.value();
     expect(eq(c.base, 1));
@@ -62,11 +62,11 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
   "Field_And_Method_Attributes"_test = []
   {
     auto t = type_of<Calc>();
-    auto f = t.Field("base").value();
+    auto f = t.GetField("base").value();
     auto fa = f.attribute("min").value();
     expect(eq(fa.key(), std::string_view{"min"}));
     expect(std::holds_alternative<std::int64_t>(fa.value()));
-    auto m = t.Method("add").value();
+    auto m = t.GetMethod("add").value();
     auto ma = m.attribute("group").value();
     expect(eq(ma.key(), std::string_view{"group"}));
   };

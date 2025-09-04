@@ -58,7 +58,7 @@ suite<"NGIN::Reflection::Phase1"> reflPhase1 = []
   {
     auto t = type_of<Named>();
     expect(eq(t.QualifiedName(), std::string_view{"My::Named"}));
-    auto f = t.Field("v");
+    auto f = t.GetField("v");
     expect(f.has_value());
   };
 };
