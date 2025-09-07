@@ -1,6 +1,8 @@
 #include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/NameUtils.hpp>
 #include <NGIN/Reflection/Any.hpp>
+#include <cstring>
+#include <memory>
 
 namespace NGIN::Reflection::detail
 {
@@ -8,6 +10,37 @@ namespace NGIN::Reflection::detail
   static Registry g_registry{};
 
   Registry &GetRegistry() noexcept { return g_registry; }
+
+  // Minimal string interner (prototype): stores unique strings with stable lifetime
+  std::string_view InternName(std::string_view s) noexcept
+  {
+    auto &reg = GetRegistry();
+    const auto h = NGIN::Hashing::FNV1a64(s.data(), s.size());
+    if (auto bucket = reg.internBuckets.GetPtr(h))
+    {
+      for (NGIN::UIntSize i = 0; i < bucket->Size(); ++i)
+      {
+        std::string_view v = (*bucket)[i];
+        if (v.size() == s.size() && std::memcmp(v.data(), s.data(), s.size()) == 0)
+          return v; // already interned
+      }
+    }
+    // Not found: store and index
+    auto up = std::make_unique<std::string>(s);
+    std::string_view view{up->data(), up->size()};
+    reg.stringStore.PushBack(std::move(up));
+    if (auto bucket = reg.internBuckets.GetPtr(h))
+    {
+      bucket->PushBack(view);
+    }
+    else
+    {
+      NGIN::Containers::Vector<std::string_view> v;
+      v.PushBack(view);
+      reg.internBuckets.Insert(h, std::move(v));
+    }
+    return view;
+  }
 
 } // namespace NGIN::Reflection::detail
 
@@ -77,19 +110,19 @@ namespace NGIN::Reflection
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].typeId;
   }
 
-  void *Field::get_mut(void *obj) const
+  void *Field::GetMut(void *obj) const
   {
     const auto &reg = GetRegistry();
-    return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].get_mut(obj);
+    return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].GetMut(obj);
   }
 
-  const void *Field::get_const(const void *obj) const
+  const void *Field::GetConst(const void *obj) const
   {
     const auto &reg = GetRegistry();
-    return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].get_const(obj);
+    return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].GetConst(obj);
   }
 
-  Any Field::get_any(const void *obj) const
+  Any Field::GetAny(const void *obj) const
   {
     const auto &reg = GetRegistry();
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
@@ -98,7 +131,7 @@ namespace NGIN::Reflection
     return Any::make_void();
   }
 
-  std::expected<void, Error> Field::set_any(void *obj, const Any &value) const
+  std::expected<void, Error> Field::SetAny(void *obj, const Any &value) const
   {
     const auto &reg = GetRegistry();
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
@@ -108,7 +141,7 @@ namespace NGIN::Reflection
     {
       return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
     }
-    void *dst = f.get_mut(obj);
+    void *dst = f.GetMut(obj);
     if (value.size() != f.sizeBytes)
     {
       return std::unexpected(Error{ErrorCode::InvalidArgument, "size mismatch"});

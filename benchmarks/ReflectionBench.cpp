@@ -64,9 +64,9 @@ int main()
     auto f = t.GetField("n").value();
     ctx.start();
     for (int i=0;i<20000;++i) {
-      (void)f.set_any(&o, val);
+      (void)f.SetAny(&o, val);
     }
-    ctx.stop(); }, "Field set_any int 20k");
+    ctx.stop(); }, "Field SetAny int 20k");
 
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {

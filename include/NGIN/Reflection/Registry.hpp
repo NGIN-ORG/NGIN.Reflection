@@ -15,6 +15,8 @@
 #include <variant>
 #include <type_traits>
 #include <array>
+#include <string>
+#include <memory>
 
 #include <NGIN/Reflection/Types.hpp>
 
@@ -29,6 +31,11 @@ namespace NGIN::Reflection
   };
   template <class T>
   class Builder;
+
+  // Optional external customization point for types you cannot modify
+  // Specialize in namespace NGIN::Reflection: template<> struct Describe<MyType> { static void Do(Builder<MyType>&); };
+  template <class T>
+  struct Describe;
 
   // Public attribute value type
   using AttrValue = std::variant<bool, std::int64_t, double, std::string_view, NGIN::UInt64>;
@@ -57,15 +64,16 @@ namespace NGIN::Reflection
       return NGIN::Hashing::FNV1a64(sv.data(), sv.size());
     }
 
-    inline std::string_view InternName(std::string_view s) noexcept { return s; }
+    // Intern a string into the registry's string storage and return a stable view
+    std::string_view InternName(std::string_view s) noexcept;
 
     struct FieldRuntimeDesc
     {
       std::string_view name;
       NGIN::UInt64 typeId;
       NGIN::UIntSize sizeBytes{0};
-      void *(*get_mut)(void *){nullptr};
-      const void *(*get_const)(const void *){nullptr};
+      void *(*GetMut)(void *){nullptr};
+      const void *(*GetConst)(const void *){nullptr};
       class Any (*load)(const void *){nullptr};
       std::expected<void, Error> (*store)(void *, const class Any &){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
@@ -105,6 +113,12 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<TypeRuntimeDesc> types;
       NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::UInt32> byTypeId;
       NGIN::Containers::FlatHashMap<std::string_view, NGIN::UInt32> byName;
+
+      // Minimal string interner storage (prototype):
+      // - Owns strings so returned string_view remains stable
+      // - Buckets by 64-bit hash with collision check per-bucket
+      NGIN::Containers::Vector<std::unique_ptr<std::string>> stringStore;
+      NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::Containers::Vector<std::string_view>> internBuckets;
     };
 
     Registry &GetRegistry() noexcept;
@@ -114,6 +128,19 @@ namespace NGIN::Reflection
       // ADL friend should be declared as: friend void ngin_reflect(tag<T>, Builder<T>&)
       { ngin_reflect(tag<T>{}, b) } -> std::same_as<void>;
     };
+
+    // Detection for Describe<T>::Do(Builder<T>&)
+    template <class, class = void>
+    struct HasDescribeImpl : std::false_type
+    {
+    };
+    template <class T>
+    struct HasDescribeImpl<T, std::void_t<decltype(NGIN::Reflection::Describe<T>::Do(std::declval<Builder<T> &>()))>>
+        : std::true_type
+    {
+    };
+    template <class T>
+    concept HasDescribeWithBuilder = HasDescribeImpl<T>::value;
 
     // Traits for pointer-to-member decomposition
     template <class M>
@@ -175,28 +202,29 @@ namespace NGIN::Reflection
     template <class T>
     NGIN::UInt32 EnsureRegistered()
     {
+      using U = std::remove_cvref_t<T>;
       auto &reg = GetRegistry();
-      const auto sv = NGIN::Meta::TypeName<T>::qualifiedName;
+      const auto sv = NGIN::Meta::TypeName<U>::qualifiedName;
       const auto tid = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
       if (auto *p = reg.byTypeId.GetPtr(tid))
         return *p;
 
       // Create a new record with defaults
       TypeRuntimeDesc rec{};
-      rec.qualifiedName = InternName(NGIN::Meta::TypeName<T>::qualifiedName); // default name derived; user override optional
+      rec.qualifiedName = InternName(NGIN::Meta::TypeName<U>::qualifiedName); // default name derived; user override optional
       rec.typeId = tid;
-      rec.sizeBytes = sizeof(T);
-      rec.alignBytes = alignof(T);
+      rec.sizeBytes = sizeof(U);
+      rec.alignBytes = alignof(U);
 
       // Default constructor descriptor (if available)
-      if constexpr (std::is_default_constructible_v<T>)
+      if constexpr (std::is_default_constructible_v<U>)
       {
         CtorRuntimeDesc c{};
         c.construct = [](const class Any *, NGIN::UIntSize cnt) -> std::expected<class Any, Error>
         {
           if (cnt != 0)
             return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-          return Any::make(T{});
+          return Any::make(U{});
         };
         rec.constructors.PushBack(std::move(c));
       }
@@ -206,10 +234,15 @@ namespace NGIN::Reflection
       reg.byTypeId.Insert(tid, idx);
       reg.byName.Insert(reg.types[idx].qualifiedName, idx);
 
-      if constexpr (HasNginReflectWithBuilder<T>)
+      if constexpr (HasNginReflectWithBuilder<U>)
       {
-        Builder<T> b{idx};
-        ngin_reflect(tag<T>{}, b); // ADL — user describes fields/methods/etc.
+        Builder<U> b{idx};
+        ngin_reflect(tag<U>{}, b); // ADL — user describes fields/methods/etc.
+      }
+      else if constexpr (HasDescribeWithBuilder<U>)
+      {
+        Builder<U> b{idx};
+        NGIN::Reflection::Describe<U>::Do(b); // Trait fallback — public access only
       }
       return idx;
     }
@@ -227,12 +260,12 @@ namespace NGIN::Reflection
     [[nodiscard]] std::string_view name() const;
     [[nodiscard]] NGIN::UInt64 type_id() const;
 
-    [[nodiscard]] void *get_mut(void *obj) const;
-    [[nodiscard]] const void *get_const(const void *obj) const;
+    [[nodiscard]] void *GetMut(void *obj) const;
+    [[nodiscard]] const void *GetConst(const void *obj) const;
 
     // Any helpers
-    [[nodiscard]] class Any get_any(const void *obj) const;
-    [[nodiscard]] std::expected<void, Error> set_any(void *obj, const class Any &value) const;
+    [[nodiscard]] class Any GetAny(const void *obj) const;
+    [[nodiscard]] std::expected<void, Error> SetAny(void *obj, const class Any &value) const;
 
     // Attributes
     [[nodiscard]] NGIN::UIntSize attribute_count() const;

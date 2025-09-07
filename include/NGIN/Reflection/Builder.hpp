@@ -46,8 +46,8 @@ namespace NGIN::Reflection
         f.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
       }
       f.sizeBytes = sizeof(MemberT);
-      f.get_mut = &detail::FieldGetterMut<MemberPtr>;
-      f.get_const = &detail::FieldGetterConst<MemberPtr>;
+      f.GetMut = &detail::FieldGetterMut<MemberPtr>;
+      f.GetConst = &detail::FieldGetterConst<MemberPtr>;
       f.load = &detail::FieldLoad<MemberPtr>;
       f.store = &detail::FieldStore<MemberPtr>;
       reg.types[m_index].fields.PushBack(std::move(f));
@@ -79,7 +79,7 @@ namespace NGIN::Reflection
       auto &fields = reg.types[m_index].fields;
       for (auto i = NGIN::UIntSize{0}; i < fields.Size(); ++i)
       {
-        if (fields[i].get_mut == reinterpret_cast<void *(*)(void *)>(fn))
+        if (fields[i].GetMut == reinterpret_cast<void *(*)(void *)>(fn))
         {
           fields[i].attributes.PushBack(AttributeDesc{key, value});
           break;

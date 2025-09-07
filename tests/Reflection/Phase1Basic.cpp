@@ -50,7 +50,7 @@ suite<"NGIN::Reflection::Phase1"> reflPhase1 = []
     expect(eq(t.FieldAt(1).name(), std::string_view{"score"}));
 
     User u{};
-    *static_cast<int *>(t.FieldAt(0).get_mut(&u)) = 42;
+    *static_cast<int *>(t.FieldAt(0).GetMut(&u)) = 42;
     expect(eq(u.id, 42)) << "mutable access via handle";
   };
 

@@ -50,13 +50,13 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
     expect(fexp.has_value());
     auto f = fexp.value();
     expect(eq(c.base, 1));
-    expect(f.set_any(&c, Any::make(10)).has_value());
+    expect(f.SetAny(&c, Any::make(10)).has_value());
     expect(eq(c.base, 10));
-    // get_any returns the current value
-    auto av = f.get_any(&c);
+    // GetAny returns the current value
+    auto av = f.GetAny(&c);
     expect(eq(av.as<int>(), 10));
     // Type mismatch should fail
-    expect(!f.set_any(&c, Any::make(3.14f)).has_value());
+    expect(!f.SetAny(&c, Any::make(3.14f)).has_value());
   };
 
   "Field_And_Method_Attributes"_test = []
