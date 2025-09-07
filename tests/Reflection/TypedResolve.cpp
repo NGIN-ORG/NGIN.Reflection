@@ -13,7 +13,7 @@ namespace TRDemo
     int mul(int a, int b) const { return a * b; }
     float mul(float a, float b) const { return a * b; }
     void ping(int) const {}
-    friend void ngin_reflect(NGIN::Reflection::tag<M>, NGIN::Reflection::Builder<M> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<M>, NGIN::Reflection::Builder<M> &b)
     {
       b.method<static_cast<int (M::*)(int, int) const>(&M::mul)>("mul");
       b.method<static_cast<float (M::*)(float, float) const>(&M::mul)>("mul");

@@ -29,7 +29,7 @@ namespace LookupBench
     int a18{};
     int a19{};
 
-    friend void ngin_reflect(NGIN::Reflection::tag<ManyFields>, NGIN::Reflection::Builder<ManyFields> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<ManyFields>, NGIN::Reflection::Builder<ManyFields> &b)
     {
       b.field<&ManyFields::a0>("a0");
       b.field<&ManyFields::a1>("a1");

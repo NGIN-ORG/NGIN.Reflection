@@ -11,7 +11,7 @@ namespace SpanDemo
   struct C
   {
     int inc(int v) const { return v + 1; }
-    friend void ngin_reflect(NGIN::Reflection::tag<C>, NGIN::Reflection::Builder<C> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<C>, NGIN::Reflection::Builder<C> &b)
     {
       b.set_name("SpanDemo::C");
       b.method<&C::inc>("inc");

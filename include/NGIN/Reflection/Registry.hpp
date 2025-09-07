@@ -26,7 +26,7 @@ namespace NGIN::Reflection
 
   // Forward decls
   template <class T>
-  struct tag
+  struct Tag
   {
     using type = T;
   };
@@ -162,7 +162,7 @@ namespace NGIN::Reflection
     template <class T>
     concept HasNginReflectWithBuilder = requires(Builder<T> &b) {
       // ADL friend should be declared as: friend void ngin_reflect(tag<T>, Builder<T>&)
-      { ngin_reflect(tag<T>{}, b) } -> std::same_as<void>;
+      { ngin_reflect(Tag<T>{}, b) } -> std::same_as<void>;
     };
 
     // Detection for Describe<T>::Do(Builder<T>&)
@@ -274,7 +274,7 @@ namespace NGIN::Reflection
       if constexpr (HasNginReflectWithBuilder<U>)
       {
         Builder<U> b{idx};
-        ngin_reflect(tag<U>{}, b); // ADL — user describes fields/methods/etc.
+        ngin_reflect(Tag<U>{}, b); // ADL — user describes fields/methods/etc.
       }
       else if constexpr (HasDescribeWithBuilder<U>)
       {
@@ -501,7 +501,7 @@ namespace NGIN::Reflection
   };
 
   // Queries
-  ExpectedType type(std::string_view qualified_name);
+  ExpectedType GetType(std::string_view name);
 
   template <class T>
   Type TypeOf()

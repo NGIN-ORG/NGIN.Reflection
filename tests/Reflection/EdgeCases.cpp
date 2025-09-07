@@ -13,7 +13,7 @@ namespace EdgeDemo
     int id{};
     float score{};
   };
-  inline void ngin_reflect(NGIN::Reflection::tag<User>, NGIN::Reflection::Builder<User> &b)
+  inline void ngin_reflect(NGIN::Reflection::Tag<User>, NGIN::Reflection::Builder<User> &b)
   {
     b.field<&User::id>("id");
     b.field<&User::score>("score");
@@ -24,7 +24,7 @@ namespace EdgeDemo
     int mul(int a, int b) const { return a * b; }
     float mul(float a, float b) const { return a * b; }
     double mul(int a, double b) const { return a * b; }
-    friend void ngin_reflect(NGIN::Reflection::tag<Math>, NGIN::Reflection::Builder<Math> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::Builder<Math> &b)
     {
       b.method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");
       b.method<static_cast<float (Math::*)(float, float) const>(&Math::mul)>("mul");
@@ -41,7 +41,7 @@ suite<"NGIN::Reflection::Edge"> edge = []
 
   "Type_NotFound"_test = []
   {
-    auto r = NGIN::Reflection::type("NoSuch.Type");
+    auto r = NGIN::Reflection::GetType("NoSuch.Type");
     expect(!r.has_value());
   };
 

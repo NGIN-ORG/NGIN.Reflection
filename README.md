@@ -114,6 +114,7 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
 - Access rules: inline friend grants private/protected access; free `ngin_reflect` and `Describe<T>` only see public members.
 
 Notes:
+
 - Cv/ref normalization: `T`, `const T&`, and `T&&` map to one canonical type record.
 - Name interning: names passed to `set_name()` and Builder APIs are interned; passing temporaries or literals is safe.
 
@@ -171,7 +172,7 @@ Phase 0 — Bootstrap (done)
 
 Phase 1 — MVP (single‑module, no DLL) — Implemented
 
-- Public headers: tags, handles (`Type`, `Field`, `Method`), `Builder<T>`, `TypeOf<T>()`, `type(name)`.
+- Public headers: tags, handles (`Type`, `Field`, `Method`), `Builder<T>`, `TypeOf<T>()`, `GetType(name)`.
 - Registry: process‑local immutable tables; fast name/TypeId → Type lookup.
 - Fields: reflect public data members; load/store thunks; `GetMut/GetConst`; `Field::GetAny/SetAny`; field attributes.
 - Methods: register const member functions (explicit member pointer signature for overloads); `GetMethod`, `ResolveMethod` (overload set + scoring); method attributes.

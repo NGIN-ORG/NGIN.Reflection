@@ -15,7 +15,7 @@ namespace ScoreDemo
     float f(float) const { return 3.0f; }
     long long f(long long) const { return 4; }
     unsigned long long f(unsigned long long) const { return 5; }
-    friend void ngin_reflect(NGIN::Reflection::tag<S>, NGIN::Reflection::Builder<S> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<S>, NGIN::Reflection::Builder<S> &b)
     {
       b.method<static_cast<int (S::*)(int) const>(&S::f)>("f");
       b.method<static_cast<double (S::*)(double) const>(&S::f)>("f");
@@ -29,7 +29,7 @@ namespace ScoreDemo
   {
     int g(int) const { return 1; }
     double g(double) const { return 2.0; }
-    friend void ngin_reflect(NGIN::Reflection::tag<S2>, NGIN::Reflection::Builder<S2> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<S2>, NGIN::Reflection::Builder<S2> &b)
     {
       b.method<static_cast<int (S2::*)(int) const>(&S2::g)>("g");
       b.method<static_cast<double (S2::*)(double) const>(&S2::g)>("g");

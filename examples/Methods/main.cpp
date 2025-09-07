@@ -9,7 +9,7 @@ namespace Demo
     float mul(float a, float b) const { return a * b; }
     double mul(int a, double b) const { return a * b; }
 
-    friend void ngin_reflect(NGIN::Reflection::tag<Math>, NGIN::Reflection::Builder<Math> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::Builder<Math> &b)
     {
       b.set_name("Demo::Math");
       b.method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");

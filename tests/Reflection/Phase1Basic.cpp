@@ -14,7 +14,7 @@ namespace DemoPhase1
     float score{};
 
     // ADL friend using builder; omit names to auto-derive from pointer-to-member
-    friend void ngin_reflect(NGIN::Reflection::tag<User>, NGIN::Reflection::Builder<User> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<User>, NGIN::Reflection::Builder<User> &b)
     {
       b.field<&User::id>("id");
       b.field<&User::score>("score");
@@ -24,7 +24,7 @@ namespace DemoPhase1
   struct Named
   {
     int value{};
-    friend void ngin_reflect(NGIN::Reflection::tag<Named>, NGIN::Reflection::Builder<Named> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<Named>, NGIN::Reflection::Builder<Named> &b)
     {
       b.set_name("My::Named");
       b.field<&Named::value>("v");

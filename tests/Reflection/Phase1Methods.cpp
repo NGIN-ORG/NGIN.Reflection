@@ -13,7 +13,7 @@ namespace DemoPhase1M
     int base{0};
     int add(int x) const { return base + x; }
 
-    friend void ngin_reflect(NGIN::Reflection::tag<Calc>, NGIN::Reflection::Builder<Calc> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<Calc>, NGIN::Reflection::Builder<Calc> &b)
     {
       b.set_name("Demo::Calc");
       b.field<&Calc::base>("base");

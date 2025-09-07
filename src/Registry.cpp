@@ -337,11 +337,11 @@ namespace NGIN::Reflection
   }
 
   // Queries
-  ExpectedType type(std::string_view qualified_name)
+  ExpectedType GetType(std::string_view name)
   {
     auto &reg = GetRegistry();
     NameId nid{};
-    if (detail::FindNameId(qualified_name, nid))
+    if (detail::FindNameId(name, nid))
     {
       if (auto *p = reg.byName.GetPtr(nid))
         return Type{TypeHandle{*p}};

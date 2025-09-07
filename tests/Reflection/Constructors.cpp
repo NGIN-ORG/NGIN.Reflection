@@ -14,7 +14,7 @@ namespace CtorDemo
     int y{0};
     Point() = default;
     Point(int a, int b) : x(a), y(b) {}
-    friend void ngin_reflect(NGIN::Reflection::tag<Point>, NGIN::Reflection::Builder<Point> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<Point>, NGIN::Reflection::Builder<Point> &b)
     {
       b.set_name("CtorDemo::Point");
       b.field<&Point::x>("x");

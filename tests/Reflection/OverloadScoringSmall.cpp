@@ -13,7 +13,7 @@ namespace SmallDemo
     int f(int) const { return 1; }
     long f(long) const { return 2; }
     double f(double) const { return 3.0; }
-    friend void ngin_reflect(NGIN::Reflection::tag<H>, NGIN::Reflection::Builder<H> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<H>, NGIN::Reflection::Builder<H> &b)
     {
       b.method<static_cast<int (H::*)(int) const>(&H::f)>("f");
       b.method<static_cast<long (H::*)(long) const>(&H::f)>("f");
