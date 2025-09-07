@@ -13,6 +13,8 @@
 #include <expected>
 #include <span>
 #include <variant>
+#include <type_traits>
+#include <array>
 
 #include <NGIN/Reflection/Types.hpp>
 
@@ -41,14 +43,16 @@ namespace NGIN::Reflection
   class Field;
   class Type;
   class Method;
+  class Constructor;
   class AttributeView;
   class Any;
 
   namespace detail
   {
     // Compute FNV-based type id for a type
-    template<class T>
-    inline NGIN::UInt64 TypeIdOf() {
+    template <class T>
+    inline NGIN::UInt64 TypeIdOf()
+    {
       auto sv = NGIN::Meta::TypeName<std::remove_cv_t<std::remove_reference_t<T>>>::qualifiedName;
       return NGIN::Hashing::FNV1a64(sv.data(), sv.size());
     }
@@ -72,7 +76,14 @@ namespace NGIN::Reflection
       std::string_view name;
       NGIN::UInt64 returnTypeId;
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
-      std::expected<class Any, Error> (*invoke)(void *, const class Any *, NGIN::UIntSize){nullptr};
+      std::expected<class Any, Error> (*Invoke)(void *, const class Any *, NGIN::UIntSize){nullptr};
+      NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
+    };
+
+    struct CtorRuntimeDesc
+    {
+      NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
+      std::expected<class Any, Error> (*construct)(const class Any *, NGIN::UIntSize){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -84,6 +95,7 @@ namespace NGIN::Reflection
       NGIN::UIntSize alignBytes;
       NGIN::Containers::Vector<FieldRuntimeDesc> fields;
       NGIN::Containers::Vector<MethodRuntimeDesc> methods;
+      NGIN::Containers::Vector<CtorRuntimeDesc> constructors;
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
       NGIN::Containers::FlatHashMap<std::string_view, NGIN::Containers::Vector<NGIN::UInt32>> methodOverloads;
     };
@@ -176,6 +188,19 @@ namespace NGIN::Reflection
       rec.sizeBytes = sizeof(T);
       rec.alignBytes = alignof(T);
 
+      // Default constructor descriptor (if available)
+      if constexpr (std::is_default_constructible_v<T>)
+      {
+        CtorRuntimeDesc c{};
+        c.construct = [](const class Any *, NGIN::UIntSize cnt) -> std::expected<class Any, Error>
+        {
+          if (cnt != 0)
+            return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
+          return Any::make(T{});
+        };
+        rec.constructors.PushBack(std::move(c));
+      }
+
       const auto idx = static_cast<NGIN::UInt32>(reg.types.Size());
       reg.types.PushBack(std::move(rec));
       reg.byTypeId.Insert(tid, idx);
@@ -198,7 +223,7 @@ namespace NGIN::Reflection
     constexpr Field() = default;
     explicit constexpr Field(FieldHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool valid() const noexcept { return m_h.valid(); }
+    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
     [[nodiscard]] std::string_view name() const;
     [[nodiscard]] NGIN::UInt64 type_id() const;
 
@@ -225,11 +250,43 @@ namespace NGIN::Reflection
     constexpr Method() = default;
     explicit constexpr Method(NGIN::UInt32 typeIdx, NGIN::UInt32 methodIdx) : m_typeIndex(typeIdx), m_methodIndex(methodIdx) {}
 
-    [[nodiscard]] bool valid() const noexcept { return m_typeIndex != static_cast<NGIN::UInt32>(-1); }
-    [[nodiscard]] std::string_view name() const;
-    [[nodiscard]] NGIN::UIntSize param_count() const;
-    [[nodiscard]] NGIN::UInt64 return_type_id() const;
-    [[nodiscard]] std::expected<class Any, Error> invoke(void *obj, const class Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] bool IsValid() const noexcept { return m_typeIndex != static_cast<NGIN::UInt32>(-1); }
+    [[nodiscard]] std::string_view GetName() const;
+    [[nodiscard]] NGIN::UIntSize GetParameterCount() const;
+    [[nodiscard]] NGIN::UInt64 GetTypeId() const;
+    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, const class Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, std::span<const class Any> args) const
+    {
+      return Invoke(obj, args.data(), static_cast<NGIN::UIntSize>(args.size()));
+    }
+    template <NGIN::UIntSize N>
+    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, const class Any (&args)[N], NGIN::UIntSize count) const
+    {
+      const class Any *p = args;
+      return Invoke(obj, p, count);
+    }
+    template <NGIN::UIntSize N>
+    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, class Any (&args)[N], NGIN::UIntSize count) const
+    {
+      const class Any *p = args;
+      return Invoke(obj, p, count);
+    }
+    template <class R, class... A>
+    [[nodiscard]] std::expected<R, Error> InvokeAs(void *obj, A &&...a) const
+    {
+      std::array<class Any, sizeof...(A)> tmp{Any::make(std::forward<A>(a))...};
+      auto r = Invoke(obj, tmp.data(), static_cast<NGIN::UIntSize>(tmp.size()));
+      if (!r.has_value())
+        return std::unexpected(r.error());
+      if constexpr (std::is_void_v<R>)
+      {
+        return {};
+      }
+      else
+      {
+        return r->template as<R>();
+      }
+    }
 
     // Attributes
     [[nodiscard]] NGIN::UIntSize attribute_count() const;
@@ -260,7 +317,7 @@ namespace NGIN::Reflection
     constexpr Type() = default;
     explicit constexpr Type(TypeHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.valid(); }
+    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
     [[nodiscard]] std::string_view QualifiedName() const;
     [[nodiscard]] NGIN::UInt64 GetTypeId() const;
     [[nodiscard]] NGIN::UIntSize Size() const;
@@ -273,7 +330,94 @@ namespace NGIN::Reflection
     [[nodiscard]] NGIN::UIntSize MethodCount() const;
     [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const;
     [[nodiscard]] std::expected<Method, Error> GetMethod(std::string_view name) const;
-    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, const class Any* args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, const class Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, std::span<const class Any> args) const
+    {
+      return ResolveMethod(name, args.data(), static_cast<NGIN::UIntSize>(args.size()));
+    }
+
+    // Resolve by compile-time signature (exact match on parameter and, if non-void, return type)
+    template <class R = void, class... A>
+    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name) const
+    {
+      const auto &reg = detail::GetRegistry();
+      const auto &tdesc = reg.types[m_h.index];
+      auto *vec = tdesc.methodOverloads.GetPtr(name);
+      if (!vec)
+        return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+      // Desired param type ids
+      constexpr NGIN::UIntSize N = sizeof...(A);
+      NGIN::UInt64 desired[N == 0 ? 1 : N] = {detail::TypeIdOf<std::remove_cv_t<std::remove_reference_t<A>>>()...};
+      const NGIN::UInt64 desiredRet = []
+      {
+        if constexpr (std::is_void_v<R>)
+          return NGIN::UInt64{0};
+        else
+          return detail::TypeIdOf<std::remove_cv_t<std::remove_reference_t<R>>>();
+      }();
+      for (NGIN::UIntSize k = 0; k < vec->Size(); ++k)
+      {
+        auto mi = (*vec)[k];
+        const auto &m = tdesc.methods[mi];
+        if constexpr (!std::is_void_v<R>)
+        {
+          if (m.returnTypeId != desiredRet)
+            continue;
+        }
+        else
+        {
+          if (m.returnTypeId != 0)
+            continue;
+        }
+        if (m.paramTypeIds.Size() != N)
+          continue;
+        bool all = true;
+        for (NGIN::UIntSize i = 0; i < N; ++i)
+        {
+          if (m.paramTypeIds[i] != desired[i])
+          {
+            all = false;
+            break;
+          }
+        }
+        if (all)
+          return Method{m_h.index, mi};
+      }
+      return std::unexpected(Error{ErrorCode::InvalidArgument, "no exact match"});
+    }
+
+    // Directly resolve and Invoke by compile-time signature
+    template <class R = void, class... A>
+    [[nodiscard]] std::expected<class Any, Error> Invoke(std::string_view name, void *obj, A &&...a) const
+    {
+      auto m = ResolveMethod<R, A...>(name);
+      if (!m.has_value())
+        return std::unexpected(m.error());
+      std::array<class Any, sizeof...(A)> tmp{Any::make(std::forward<A>(a))...};
+      return m->Invoke(obj, tmp.data(), static_cast<NGIN::UIntSize>(tmp.size()));
+    }
+
+    template <class R, class... A>
+    [[nodiscard]] std::expected<R, Error> InvokeAs(std::string_view name, void *obj, A &&...a) const
+    {
+      auto m = ResolveMethod<R, A...>(name);
+      if (!m)
+        return std::unexpected(m.error());
+      return m->template InvokeAs<R>(obj, std::forward<A>(a)...);
+    }
+
+    // Constructors
+    [[nodiscard]] NGIN::UIntSize ConstructorCount() const;
+    [[nodiscard]] std::expected<class Any, Error> Construct(const class Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<class Any, Error> Construct(std::span<const class Any> args) const
+    {
+      return Construct(args.data(), static_cast<NGIN::UIntSize>(args.size()));
+    }
+    [[nodiscard]] std::expected<class Any, Error> DefaultConstruct() const
+    {
+      const class Any *none = nullptr;
+      return Construct(none, 0);
+    }
 
     [[nodiscard]] NGIN::UIntSize AttributeCount() const;
     [[nodiscard]] AttributeView AttributeAt(NGIN::UIntSize i) const;
@@ -287,7 +431,7 @@ namespace NGIN::Reflection
   ExpectedType type(std::string_view qualified_name);
 
   template <class T>
-  Type type_of()
+  Type TypeOf()
   {
     auto idx = detail::EnsureRegistered<T>();
     return Type{TypeHandle{idx}};

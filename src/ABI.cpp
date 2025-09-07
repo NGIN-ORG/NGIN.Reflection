@@ -4,11 +4,11 @@
 using namespace NGIN::Reflection;
 using namespace NGIN::Reflection::detail;
 
-extern "C" bool ngin_reflection_export_v1(ngin_refl_registry_v1 *out)
+extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1 *out)
 {
   if (!out)
     return false;
-  static ngin_refl_header_v1 header{};
+  static NGINReflectionHeaderV1 header{};
   const auto &reg = GetRegistry();
   header.version = 1u;
   header.type_count = reg.types.Size();

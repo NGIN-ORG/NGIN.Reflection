@@ -12,6 +12,7 @@ cmake_policy(SET CMP0077 NEW)
 option(NGIN_REFLECTION_BUILD_TESTS "Build NGIN.Reflection tests" ON)
 option(NGIN_REFLECTION_BUILD_EXAMPLES "Build NGIN.Reflection examples" OFF)
 option(NGIN_REFLECTION_BUILD_BENCHMARKS "Build NGIN.Reflection benchmarks" OFF)
+option(NGIN_REFLECTION_ENABLE_ABI "Build ABI export entrypoint" OFF)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -52,6 +53,10 @@ endif()
 add_library(NGIN.Reflection
   src/Registry.cpp
 )
+if(NGIN_REFLECTION_ENABLE_ABI)
+  target_sources(NGIN.Reflection PRIVATE src/ABI.cpp)
+  target_compile_definitions(NGIN.Reflection PUBLIC NGIN_REFLECTION_ENABLE_ABI=1)
+endif()
 
 target_compile_features(NGIN.Reflection PUBLIC cxx_std_23)
 

@@ -40,8 +40,8 @@ suite<"NGIN::Reflection::Phase1"> reflPhase1 = []
 
   "Type_Of_InferName_And_Fields"_test = []
   {
-    auto t = type_of<User>();
-    expect(t.IsValid()) << "type_of<User> must be valid";
+    auto t = TypeOf<User>();
+    expect(t.IsValid()) << "TypeOf<User> must be IsValid";
     expect(eq(t.QualifiedName(), std::string_view{NGIN::Meta::TypeName<User>::qualifiedName}))
         << "qualified name should default from Meta::TypeName";
     expect(eq(t.FieldCount(), NGIN::UIntSize{2})) << "two fields registered";
@@ -56,7 +56,7 @@ suite<"NGIN::Reflection::Phase1"> reflPhase1 = []
 
   "Type_SetName_And_FieldAlias"_test = []
   {
-    auto t = type_of<Named>();
+    auto t = TypeOf<Named>();
     expect(eq(t.QualifiedName(), std::string_view{"My::Named"}));
     auto f = t.GetField("v");
     expect(f.has_value());

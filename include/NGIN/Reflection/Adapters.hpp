@@ -4,11 +4,17 @@
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Reflection/Any.hpp>
 #include <NGIN/Containers/Vector.hpp>
+#include <NGIN/Containers/HashMap.hpp>
 
 #include <type_traits>
 #include <tuple>
 #include <variant>
 #include <vector>
+#include <optional>
+#include <map>
+#include <unordered_map>
+
+#include <NGIN/Reflection/Convert.hpp>
 
 namespace NGIN::Reflection::Adapters {
 
@@ -97,5 +103,120 @@ private:
 
 template<class Var>
 auto MakeVariantAdapter(Var& v) { return VariantAdapter<Var>{v}; }
+
+// Optional-like
+template<class T>
+struct is_optional : std::false_type {};
+
+template<class T>
+struct is_optional<std::optional<T>> : std::true_type {};
+
+template<class T>
+inline constexpr bool is_optional_v = is_optional<T>::value;
+
+template<class Opt>
+class OptionalAdapter {
+public:
+  using Elem = typename Opt::value_type;
+  explicit OptionalAdapter(Opt& o) : m_opt(&o) {}
+  bool has_value() const { return m_opt->has_value(); }
+  Any value() const { return m_opt->has_value() ? Any::make(m_opt->value()) : Any::make_void(); }
+private:
+  Opt* m_opt{};
+};
+
+template<class Opt>
+auto MakeOptionalAdapter(Opt& o) { return OptionalAdapter<Opt>{o}; }
+
+// Map-like (std::map / std::unordered_map)
+template<class T>
+struct is_map : std::false_type {};
+
+template<class K, class V, class C, class A>
+struct is_map<std::map<K, V, C, A>> : std::true_type {};
+
+template<class K, class V, class H, class E, class A>
+struct is_map<std::unordered_map<K, V, H, E, A>> : std::true_type {};
+
+template<class T>
+inline constexpr bool is_map_v = is_map<T>::value;
+
+template<class Map>
+class MapAdapter {
+public:
+  using Key = typename Map::key_type;
+  using Mapped = typename Map::mapped_type;
+  explicit MapAdapter(Map& m) : m_map(&m) {}
+  NGIN::UIntSize size() const { return static_cast<NGIN::UIntSize>(m_map->size()); }
+  bool contains_key(const Any& k) const {
+    auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
+    if (!key) return false;
+    return m_map->find(key.value()) != m_map->end();
+  }
+  Any find_value(const Any& k) const {
+    auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
+    if (!key) return Any::make_void();
+    auto it = m_map->find(key.value());
+    if (it == m_map->end()) return Any::make_void();
+    return Any::make(it->second);
+  }
+private:
+  Map* m_map{};
+};
+
+template<class Map>
+auto MakeMapAdapter(Map& m) { return MapAdapter<Map>{m}; }
+
+// NGIN::Containers::FlatHashMap adapter (uses GetPtr/Size API)
+template<class Map> class FlatHashMapAdapter;
+
+template<class K, class V>
+class FlatHashMapAdapter<NGIN::Containers::FlatHashMap<K, V>> {
+public:
+  using Key = K;
+  using Mapped = V;
+  explicit FlatHashMapAdapter(NGIN::Containers::FlatHashMap<K, V>& m) : m_map(&m) {}
+  NGIN::UIntSize size() const { return m_map->Size(); }
+  bool contains_key(const Any& k) const {
+    auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
+    if (!key) return false;
+    return m_map->GetPtr(key.value()) != nullptr;
+  }
+  Any find_value(const Any& k) const {
+    auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
+    if (!key) return Any::make_void();
+    if (auto* p = m_map->GetPtr(key.value())) return Any::make(*p);
+    return Any::make_void();
+  }
+private:
+  NGIN::Containers::FlatHashMap<K, V>* m_map{};
+};
+
+template<class Map>
+auto MakeFlatHashMapAdapter(Map& m) { return FlatHashMapAdapter<Map>{m}; }
+
+// Optional-like adapter supporting std::optional and NGIN-style APIs
+template<class Opt>
+class OptionalLikeAdapter {
+public:
+  using Elem = typename Opt::value_type;
+  explicit OptionalLikeAdapter(Opt& o) : m_opt(&o) {}
+  bool has_value() const {
+    if constexpr (requires(const Opt& o){ o.has_value(); }) return m_opt->has_value();
+    else if constexpr (requires(const Opt& o){ o.HasValue(); }) return m_opt->HasValue();
+    else return false;
+  }
+  Any value() const {
+    if (!has_value()) return Any::make_void();
+    if constexpr (requires(const Opt& o){ o.value(); }) return Any::make(m_opt->value());
+    else if constexpr (requires(const Opt& o){ o.Value(); }) return Any::make(m_opt->Value());
+    else return Any::make_void();
+  }
+private:
+  Opt* m_opt{};
+};
+
+template<class Opt>
+auto MakeOptionalLikeAdapter(Opt& o) { return OptionalLikeAdapter<Opt>{o}; }
 
 } // namespace NGIN::Reflection::Adapters

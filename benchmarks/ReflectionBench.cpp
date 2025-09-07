@@ -30,7 +30,7 @@ int main()
   using namespace NGIN::Reflection;
   using BenchDemo::Obj;
 
-  auto t = type_of<Obj>();
+  auto t = TypeOf<Obj>();
   auto m_add = t.GetMethod("add").value();
 
   Benchmark::Register([&](BenchmarkContext &ctx)
@@ -40,11 +40,11 @@ int main()
     ctx.start();
     int sum = 0;
     for (int i=0;i<10000;++i) {
-      auto out = m_add.invoke(&o, &arg, 1).value();
+      auto out = m_add.Invoke(&o, &arg, 1).value();
       sum += out.as<int>();
     }
     ctx.doNotOptimize(sum);
-    ctx.stop(); }, "Method invoke add(int) 10k");
+    ctx.stop(); }, "Method Invoke add(int) 10k");
 
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
@@ -84,11 +84,11 @@ int main()
     ctx.start();
     int sum = 0;
     for (int i=0;i<10000;++i) {
-      auto out = m_add.invoke(&o, &arg, 1).value();
+      auto out = m_add.Invoke(&o, &arg, 1).value();
       sum += out.as<int>();
     }
     ctx.doNotOptimize(sum);
-    ctx.stop(); }, "Method invoke add(conv double->int) 10k");
+    ctx.stop(); }, "Method Invoke add(conv double->int) 10k");
 
   auto results = Benchmark::RunAll<Milliseconds>();
   Benchmark::PrintSummaryTable(std::cout, results);

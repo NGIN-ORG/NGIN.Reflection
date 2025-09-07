@@ -141,29 +141,31 @@ namespace NGIN::Reflection
   }
 
   // Method
-  std::string_view Method::name() const
+  std::string_view Method::GetName() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_typeIndex].methods[m_methodIndex].name;
   }
 
-  NGIN::UIntSize Method::param_count() const
+  NGIN::UIntSize Method::GetParameterCount() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_typeIndex].methods[m_methodIndex].paramTypeIds.Size();
   }
 
-  NGIN::UInt64 Method::return_type_id() const
+  NGIN::UInt64 Method::GetTypeId() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_typeIndex].methods[m_methodIndex].returnTypeId;
   }
 
-  std::expected<class Any, Error> Method::invoke(void *obj, const class Any *args, NGIN::UIntSize count) const
+  std::expected<class Any, Error> Method::Invoke(void *obj, const class Any *args, NGIN::UIntSize count) const
   {
     const auto &reg = GetRegistry();
-    return reg.types[m_typeIndex].methods[m_methodIndex].invoke(obj, args, count);
+    return reg.types[m_typeIndex].methods[m_methodIndex].Invoke(obj, args, count);
   }
+
+  // span-based convenience overloads are defined inline in the header
 
   NGIN::UIntSize Method::attribute_count() const
   {
@@ -219,67 +221,215 @@ namespace NGIN::Reflection
     return std::unexpected(Error{ErrorCode::NotFound, "method not found"});
   }
 
-  enum class NumKind { None, Int, UInt, Float };
-  struct NumInfo { NumKind kind; int rank; };
-  static inline NumInfo NumInfoFromTid(NGIN::UInt64 tid) {
-    if (tid == detail::TypeIdOf<bool>())                 return {NumKind::UInt, 0};
-    if (tid == detail::TypeIdOf<int>())                  return {NumKind::Int,  3};
-    if (tid == detail::TypeIdOf<unsigned int>())        return {NumKind::UInt, 3};
-    if (tid == detail::TypeIdOf<long long>())           return {NumKind::Int,  4};
-    if (tid == detail::TypeIdOf<unsigned long long>())  return {NumKind::UInt, 4};
-    if (tid == detail::TypeIdOf<float>())               return {NumKind::Float,1};
-    if (tid == detail::TypeIdOf<double>())              return {NumKind::Float,2};
+  enum class NumKind
+  {
+    None,
+    Int,
+    UInt,
+    Float
+  };
+  struct NumInfo
+  {
+    NumKind kind;
+    int rank;
+  };
+  static inline NumInfo NumInfoFromTid(NGIN::UInt64 tid)
+  {
+    if (tid == detail::TypeIdOf<bool>())
+      return {NumKind::UInt, 0};
+    if (tid == detail::TypeIdOf<signed char>())
+      return {NumKind::Int, 1};
+    if (tid == detail::TypeIdOf<unsigned char>())
+      return {NumKind::UInt, 1};
+    if (tid == detail::TypeIdOf<char>())
+      return {NumKind::Int, 1};
+    if (tid == detail::TypeIdOf<short>())
+      return {NumKind::Int, 2};
+    if (tid == detail::TypeIdOf<unsigned short>())
+      return {NumKind::UInt, 2};
+    if (tid == detail::TypeIdOf<int>())
+      return {NumKind::Int, 3};
+    if (tid == detail::TypeIdOf<unsigned int>())
+      return {NumKind::UInt, 3};
+    if (tid == detail::TypeIdOf<long>())
+      return {NumKind::Int, 4};
+    if (tid == detail::TypeIdOf<unsigned long>())
+      return {NumKind::UInt, 4};
+    if (tid == detail::TypeIdOf<long long>())
+      return {NumKind::Int, 5};
+    if (tid == detail::TypeIdOf<unsigned long long>())
+      return {NumKind::UInt, 5};
+    if (tid == detail::TypeIdOf<float>())
+      return {NumKind::Float, 1};
+    if (tid == detail::TypeIdOf<double>())
+      return {NumKind::Float, 2};
+    if (tid == detail::TypeIdOf<long double>())
+      return {NumKind::Float, 3};
     return {NumKind::None, -1};
   }
 
-  struct ScoreDims { int cost; int narrow; int conv; };
-  static inline ScoreDims ParamScore(NGIN::UInt64 have, NGIN::UInt64 want) {
-    if (have == want) return {0,0,0};
-    auto h = NumInfoFromTid(have); auto w = NumInfoFromTid(want);
-    if (h.kind == NumKind::None || w.kind == NumKind::None) return {1000,0,0};
+  struct ScoreDims
+  {
+    int cost;
+    int narrow;
+    int conv;
+  };
+  static inline ScoreDims ParamScore(NGIN::UInt64 have, NGIN::UInt64 want)
+  {
+    if (have == want)
+      return {0, 0, 0};
+    auto h = NumInfoFromTid(have);
+    auto w = NumInfoFromTid(want);
+    if (h.kind == NumKind::None || w.kind == NumKind::None)
+      return {1000, 0, 0};
     // Promotions: same kind, rank increases
-    if (h.kind == w.kind && h.rank <= w.rank) return {1,0,0};
+    if (h.kind == w.kind && h.rank <= w.rank)
+      return {1, 0, 0};
     // Float <- Int/UInt: conversion
-    if (w.kind == NumKind::Float && (h.kind == NumKind::Int || h.kind == NumKind::UInt)) return {3,0,1};
+    if (w.kind == NumKind::Float && (h.kind == NumKind::Int || h.kind == NumKind::UInt))
+      return {3, 0, 1};
     // Int/UInt <- Float: narrowing conversion
-    if ((w.kind == NumKind::Int || w.kind == NumKind::UInt) && h.kind == NumKind::Float) return {5,1,1};
+    if ((w.kind == NumKind::Int || w.kind == NumKind::UInt) && h.kind == NumKind::Float)
+      return {5, 1, 1};
     // Signedness change or rank decrease: conversion, possibly narrowing
     int narrow = 0;
-    if (h.kind != w.kind) { narrow = (w.kind==NumKind::Int || w.kind==NumKind::UInt) ? 1 : 0; return {4, narrow, 1}; }
-    if (h.rank > w.rank) { narrow = 1; return {4, narrow, 1}; }
-    return {3,0,1};
+    if (h.kind != w.kind)
+    {
+      narrow = (w.kind == NumKind::Int || w.kind == NumKind::UInt) ? 1 : 0;
+      return {4, narrow, 1};
+    }
+    if (h.rank > w.rank)
+    {
+      narrow = 1;
+      return {4, narrow, 1};
+    }
+    return {3, 0, 1};
   }
 
-  std::expected<Method, Error> Type::ResolveMethod(std::string_view name, const class Any* args, NGIN::UIntSize count) const {
-    const auto& reg = GetRegistry();
-    const auto& tdesc = reg.types[m_h.index];
-    auto* vec = tdesc.methodOverloads.GetPtr(name);
-    if (!vec) return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+  std::expected<Method, Error> Type::ResolveMethod(std::string_view name, const class Any *args, NGIN::UIntSize count) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    auto *vec = tdesc.methodOverloads.GetPtr(name);
+    if (!vec)
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
     NGIN::UInt32 bestIdx = static_cast<NGIN::UInt32>(-1);
-    struct Key { int total; int nar; int conv; NGIN::UInt32 idx; };
+    struct Key
+    {
+      int total;
+      int nar;
+      int conv;
+      NGIN::UInt32 idx;
+    };
     Key best{INT_MAX, INT_MAX, INT_MAX, 0};
-    for (NGIN::UIntSize k=0;k<vec->Size();++k) {
+    for (NGIN::UIntSize k = 0; k < vec->Size(); ++k)
+    {
       auto mi = (*vec)[k];
-      const auto& m = tdesc.methods[mi];
-      if (m.paramTypeIds.Size() != count) continue;
-      int total = 0; int nar=0; int conv=0; bool ok = true;
-      for (NGIN::UIntSize i=0;i<count;++i) {
+      const auto &m = tdesc.methods[mi];
+      if (m.paramTypeIds.Size() != count)
+        continue;
+      int total = 0;
+      int nar = 0;
+      int conv = 0;
+      bool ok = true;
+      for (NGIN::UIntSize i = 0; i < count; ++i)
+      {
         auto want = m.paramTypeIds[i];
         auto have = args[i].type_id();
         auto d = ParamScore(have, want);
-        if (d.cost >= 1000) { ok=false; break; }
-        total += d.cost; nar += d.narrow; conv += d.conv;
+        if (d.cost >= 1000)
+        {
+          ok = false;
+          break;
+        }
+        total += d.cost;
+        nar += d.narrow;
+        conv += d.conv;
       }
-      if (ok) {
+      if (ok)
+      {
         Key cur{total, nar, conv, static_cast<NGIN::UInt32>(k)};
-        if (std::tuple{cur.total, cur.nar, cur.conv, cur.idx} < std::tuple{best.total, best.nar, best.conv, best.idx}) {
-          best = cur; bestIdx = mi;
+        if (std::tuple{cur.total, cur.nar, cur.conv, cur.idx} < std::tuple{best.total, best.nar, best.conv, best.idx})
+        {
+          best = cur;
+          bestIdx = mi;
         }
       }
     }
     if (bestIdx == static_cast<NGIN::UInt32>(-1))
       return std::unexpected(Error{ErrorCode::InvalidArgument, "no viable overload"});
     return Method{m_h.index, bestIdx};
+  }
+
+  // Constructors
+  NGIN::UIntSize Type::ConstructorCount() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.index].constructors.Size();
+  }
+
+  std::expected<class Any, Error> Type::Construct(const class Any *args, NGIN::UIntSize count) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    // Fast-path: default constructor
+    if (count == 0)
+    {
+      for (NGIN::UIntSize i = 0; i < tdesc.constructors.Size(); ++i)
+      {
+        const auto &c = tdesc.constructors[i];
+        if (c.paramTypeIds.Size() == 0 && c.construct)
+          return c.construct(nullptr, 0);
+      }
+      return std::unexpected(Error{ErrorCode::NotFound, "no default constructor"});
+    }
+
+    // Overload selection (same scoring as methods)
+    NGIN::UInt32 bestIdx = static_cast<NGIN::UInt32>(-1);
+    struct Key
+    {
+      int total;
+      int nar;
+      int conv;
+      NGIN::UInt32 idx;
+    };
+    Key best{INT_MAX, INT_MAX, INT_MAX, 0};
+    for (NGIN::UIntSize i = 0; i < tdesc.constructors.Size(); ++i)
+    {
+      const auto &c = tdesc.constructors[i];
+      if (c.paramTypeIds.Size() != count)
+        continue;
+      int total = 0;
+      int nar = 0;
+      int conv = 0;
+      bool ok = true;
+      for (NGIN::UIntSize k = 0; k < count; ++k)
+      {
+        auto want = c.paramTypeIds[k];
+        auto have = args[k].type_id();
+        auto d = ParamScore(have, want);
+        if (d.cost >= 1000)
+        {
+          ok = false;
+          break;
+        }
+        total += d.cost;
+        nar += d.narrow;
+        conv += d.conv;
+      }
+      if (ok)
+      {
+        Key cur{total, nar, conv, static_cast<NGIN::UInt32>(i)};
+        if (std::tuple{cur.total, cur.nar, cur.conv, cur.idx} < std::tuple{best.total, best.nar, best.conv, best.idx})
+        {
+          best = cur;
+          bestIdx = static_cast<NGIN::UInt32>(i);
+        }
+      }
+    }
+    if (bestIdx == static_cast<NGIN::UInt32>(-1))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, "no viable constructor"});
+    return tdesc.constructors[bestIdx].construct(args, count);
   }
 
   NGIN::UIntSize Type::AttributeCount() const

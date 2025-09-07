@@ -32,20 +32,20 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
 
   "Method_Invoke_Int"_test = []
   {
-    auto t = type_of<Calc>();
+    auto t = TypeOf<Calc>();
     auto m = t.GetMethod("add").value();
-    expect(eq(m.param_count(), NGIN::UIntSize{1}));
+    expect(eq(m.GetParameterCount(), NGIN::UIntSize{1}));
 
     Calc c{2};
     Any args[1] = {Any::make(5)};
-    auto out = m.invoke(&c, args, 1).value();
+    auto out = m.Invoke(&c, args, 1).value();
     expect(eq(out.as<int>(), 7));
   };
 
   "Field_SetAny_TypeChecked"_test = []
   {
     Calc c{1};
-    auto t = type_of<Calc>();
+    auto t = TypeOf<Calc>();
     auto fexp = t.GetField("base");
     expect(fexp.has_value());
     auto f = fexp.value();
@@ -61,7 +61,7 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
 
   "Field_And_Method_Attributes"_test = []
   {
-    auto t = type_of<Calc>();
+    auto t = TypeOf<Calc>();
     auto f = t.GetField("base").value();
     auto fa = f.attribute("min").value();
     expect(eq(fa.key(), std::string_view{"min"}));
@@ -73,7 +73,7 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
 
   "Type_Attribute_Basic"_test = []
   {
-    auto t = type_of<Calc>();
+    auto t = TypeOf<Calc>();
     auto av = t.Attribute("category").value();
     expect(eq(av.key(), std::string_view{"category"}));
     // Holds variant; only check it is string_view with value "math"
