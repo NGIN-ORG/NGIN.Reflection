@@ -27,9 +27,11 @@ namespace NGIN::Reflection
     Builder &set_name(std::string_view qualified)
     {
       auto &reg = detail::GetRegistry();
-      reg.types[m_index].qualifiedName = detail::InternName(qualified);
+      auto id = detail::InternNameId(qualified);
+      reg.types[m_index].qualifiedNameId = id;
+      reg.types[m_index].qualifiedName = detail::NameFromId(id);
       // Update name index as well
-      reg.byName.Insert(reg.types[m_index].qualifiedName, m_index);
+      reg.byName.Insert(id, m_index);
       return *this;
     }
 
@@ -40,7 +42,12 @@ namespace NGIN::Reflection
       using MemberT = detail::MemberTypeT<MemberPtr>;
       auto &reg = detail::GetRegistry();
       detail::FieldRuntimeDesc f{};
-      f.name = detail::InternName(name.empty() ? detail::MemberNameFromPretty<MemberPtr>() : name);
+      {
+        auto svName = name.empty() ? detail::MemberNameFromPretty<MemberPtr>() : name;
+        auto id = detail::InternNameId(svName);
+        f.nameId = id;
+        f.name = detail::NameFromId(id);
+      }
       {
         auto sv = NGIN::Meta::TypeName<MemberT>::qualifiedName;
         f.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
@@ -51,6 +58,9 @@ namespace NGIN::Reflection
       f.load = &detail::FieldLoad<MemberPtr>;
       f.store = &detail::FieldStore<MemberPtr>;
       reg.types[m_index].fields.PushBack(std::move(f));
+      // update field index map
+      const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].fields.Size() - 1);
+      reg.types[m_index].fieldIndex.Insert(reg.types[m_index].fields[newIdx].nameId, newIdx);
       return *this;
     }
 
@@ -212,7 +222,9 @@ namespace NGIN::Reflection
     static_assert(std::is_same_v<typename Traits::Class, T>, "Method must belong to T");
     auto &reg = detail::GetRegistry();
     detail::MethodRuntimeDesc m{};
-    m.name = detail::InternName(name);
+    auto nameId = detail::InternNameId(name);
+    m.name = detail::NameFromId(nameId);
+    m.nameId = nameId;
     // Return type id
     if constexpr (std::is_void_v<typename Traits::Ret>)
     {
@@ -236,12 +248,12 @@ namespace NGIN::Reflection
     // Add to overload set map
     auto &tdesc = reg.types[m_index];
     const auto newIndex = static_cast<NGIN::UInt32>(tdesc.methods.Size() - 1);
-    auto *vecPtr = tdesc.methodOverloads.GetPtr(tdesc.methods[newIndex].name);
+    auto *vecPtr = tdesc.methodOverloads.GetPtr(tdesc.methods[newIndex].nameId);
     if (!vecPtr)
     {
       NGIN::Containers::Vector<NGIN::UInt32> v;
       v.PushBack(newIndex);
-      tdesc.methodOverloads.Insert(tdesc.methods[newIndex].name, std::move(v));
+      tdesc.methodOverloads.Insert(tdesc.methods[newIndex].nameId, std::move(v));
     }
     else
     {

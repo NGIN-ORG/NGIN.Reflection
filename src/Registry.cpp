@@ -3,6 +3,7 @@
 #include <NGIN/Reflection/Any.hpp>
 #include <cstring>
 #include <memory>
+#include <NGIN/Memory/SystemAllocator.hpp>
 
 namespace NGIN::Reflection::detail
 {
@@ -12,34 +13,145 @@ namespace NGIN::Reflection::detail
   Registry &GetRegistry() noexcept { return g_registry; }
 
   // Minimal string interner (prototype): stores unique strings with stable lifetime
-  std::string_view InternName(std::string_view s) noexcept
+  // String interner implementation
+  StringInterner::~StringInterner()
   {
-    auto &reg = GetRegistry();
+    NGIN::Memory::SystemAllocator alloc{};
+    for (auto &p : pages)
+    {
+      if (p.data)
+        alloc.Deallocate(p.data, p.capacity, alignof(char));
+      p.data = nullptr;
+      p.used = p.capacity = 0;
+    }
+  }
+
+  void *StringInterner::AllocateBytes(NGIN::UInt32 n) noexcept
+  {
+    // ensure a page with at least n bytes free
+    if (!pages.Size() || (pages[pages.Size() - 1].capacity - pages[pages.Size() - 1].used) < n)
+    {
+      // allocate new page: geometric growth, minimum 4KB
+      NGIN::UInt32 need = n;
+      NGIN::UInt32 cap = 4096;
+      if (pages.Size())
+      {
+        cap = pages[pages.Size() - 1].capacity * 2;
+        if (cap < 4096)
+          cap = 4096;
+      }
+      while (cap < need)
+        cap *= 2u;
+      NGIN::Memory::SystemAllocator alloc{};
+      char *mem = static_cast<char *>(alloc.Allocate(cap, alignof(char)));
+      if (!mem)
+        return nullptr;
+      Page pg{};
+      pg.data = mem;
+      pg.used = 0;
+      pg.capacity = cap;
+      pages.PushBack(std::move(pg));
+    }
+    auto &p = pages[pages.Size() - 1];
+    void *out = p.data + p.used;
+    p.used += n;
+    return out;
+  }
+
+  NameId StringInterner::InsertOrGet(std::string_view s) noexcept
+  {
     const auto h = NGIN::Hashing::FNV1a64(s.data(), s.size());
-    if (auto bucket = reg.internBuckets.GetPtr(h))
+    if (auto bucket = buckets.GetPtr(h))
     {
       for (NGIN::UIntSize i = 0; i < bucket->Size(); ++i)
       {
-        std::string_view v = (*bucket)[i];
-        if (v.size() == s.size() && std::memcmp(v.data(), s.data(), s.size()) == 0)
-          return v; // already interned
+        auto idx = (*bucket)[i];
+        const auto &e = entries[idx];
+        if (e.length == s.size() && std::memcmp(pages[e.page].data + e.offset, s.data(), s.size()) == 0)
+          return static_cast<NameId>(idx);
       }
     }
-    // Not found: store and index
-    auto up = std::make_unique<std::string>(s);
-    std::string_view view{up->data(), up->size()};
-    reg.stringStore.PushBack(std::move(up));
-    if (auto bucket = reg.internBuckets.GetPtr(h))
+    // allocate bytes + NUL
+    const NGIN::UInt32 len = static_cast<NGIN::UInt32>(s.size());
+    char *dst = static_cast<char *>(AllocateBytes(len + 1));
+    if (!dst)
+      return static_cast<NameId>(-1);
+    std::memcpy(dst, s.data(), len);
+    dst[len] = '\0';
+    // record entry
+    Entry e{};
+    e.page = static_cast<NGIN::UInt32>(pages.Size() - 1);
+    e.offset = pages[e.page].used - (len + 1);
+    e.length = len;
+    e.hash = h;
+    const auto idx = static_cast<NGIN::UInt32>(entries.Size());
+    entries.PushBack(e);
+    // update bucket
+    if (auto bucket = buckets.GetPtr(h))
     {
-      bucket->PushBack(view);
+      bucket->PushBack(idx);
     }
     else
     {
-      NGIN::Containers::Vector<std::string_view> v;
-      v.PushBack(view);
-      reg.internBuckets.Insert(h, std::move(v));
+      NGIN::Containers::Vector<NGIN::UInt32> v;
+      v.PushBack(idx);
+      buckets.Insert(h, std::move(v));
     }
-    return view;
+    return static_cast<NameId>(idx);
+  }
+
+  bool StringInterner::FindId(std::string_view s, NameId &out) const noexcept
+  {
+    const auto h = NGIN::Hashing::FNV1a64(s.data(), s.size());
+    if (auto bucket = buckets.GetPtr(h))
+    {
+      for (NGIN::UIntSize i = 0; i < bucket->Size(); ++i)
+      {
+        auto idx = (*bucket)[i];
+        const auto &e = entries[idx];
+        if (e.length == s.size() && std::memcmp(pages[e.page].data + e.offset, s.data(), s.size()) == 0)
+        {
+          out = static_cast<NameId>(idx);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  std::string_view StringInterner::View(NameId id) const noexcept
+  {
+    const auto idx = static_cast<NGIN::UInt32>(id);
+    const auto &e = entries[idx];
+    return std::string_view{pages[e.page].data + e.offset, e.length};
+  }
+
+  std::string_view StringInterner::InternView(std::string_view s) noexcept
+  {
+    auto id = InsertOrGet(s);
+    return View(id);
+  }
+
+  // Convenience wrappers
+  NameId InternNameId(std::string_view s) noexcept
+  {
+    auto &reg = GetRegistry();
+    return reg.names.InsertOrGet(s);
+  }
+  bool FindNameId(std::string_view s, NameId &out) noexcept
+  {
+    auto &reg = GetRegistry();
+    return reg.names.FindId(s, out);
+  }
+  std::string_view NameFromId(NameId id) noexcept
+  {
+    auto &reg = GetRegistry();
+    return reg.names.View(id);
+  }
+  std::string_view InternName(std::string_view s) noexcept
+  {
+    auto &reg = GetRegistry();
+    return reg.names.InternView(s);
   }
 
 } // namespace NGIN::Reflection::detail
@@ -88,11 +200,12 @@ namespace NGIN::Reflection
   ExpectedField Type::GetField(std::string_view name) const
   {
     const auto &reg = GetRegistry();
-    const auto &v = reg.types[m_h.index].fields;
-    for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
+    const auto &tdesc = reg.types[m_h.index];
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
     {
-      if (v[i].name == name)
-        return Field{FieldHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+      if (auto *p = tdesc.fieldIndex.GetPtr(nid))
+        return Field{FieldHandle{m_h.index, *p}};
     }
     return std::unexpected(Error{ErrorCode::NotFound, "field not found"});
   }
@@ -227,8 +340,12 @@ namespace NGIN::Reflection
   ExpectedType type(std::string_view qualified_name)
   {
     auto &reg = GetRegistry();
-    if (auto *p = reg.byName.GetPtr(qualified_name))
-      return Type{TypeHandle{*p}};
+    NameId nid{};
+    if (detail::FindNameId(qualified_name, nid))
+    {
+      if (auto *p = reg.byName.GetPtr(nid))
+        return Type{TypeHandle{*p}};
+    }
     return std::unexpected(Error{ErrorCode::NotFound, "type not found"});
   }
 
@@ -343,7 +460,10 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
-    auto *vec = tdesc.methodOverloads.GetPtr(name);
+    NameId nid{};
+    if (!detail::FindNameId(name, nid))
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+    auto *vec = tdesc.methodOverloads.GetPtr(nid);
     if (!vec)
       return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
     NGIN::UInt32 bestIdx = static_cast<NGIN::UInt32>(-1);

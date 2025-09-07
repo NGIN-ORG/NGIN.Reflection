@@ -22,6 +22,7 @@
 
 namespace NGIN::Reflection
 {
+  using NameId = NGIN::UInt32;
 
   // Forward decls
   template <class T>
@@ -56,6 +57,41 @@ namespace NGIN::Reflection
 
   namespace detail
   {
+    struct StringInterner
+    {
+      StringInterner() = default;
+      ~StringInterner();
+
+      NameId InsertOrGet(std::string_view s) noexcept;
+      bool FindId(std::string_view s, NameId &out) const noexcept;
+      std::string_view View(NameId id) const noexcept;
+      std::string_view InternView(std::string_view s) noexcept;
+
+    private:
+      struct Page
+      {
+        char *data{nullptr};
+        NGIN::UInt32 used{0};
+        NGIN::UInt32 capacity{0};
+      };
+      struct Entry
+      {
+        NGIN::UInt32 page{0};
+        NGIN::UInt32 offset{0};
+        NGIN::UInt32 length{0};
+        NGIN::UInt64 hash{0};
+      };
+      NGIN::Containers::Vector<Page> pages;
+      NGIN::Containers::Vector<Entry> entries;
+      NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::Containers::Vector<NGIN::UInt32>> buckets;
+
+      void *AllocateBytes(NGIN::UInt32 n) noexcept;
+    };
+
+    // Convenience wrappers using the global registry interner
+    NameId InternNameId(std::string_view s) noexcept;
+    bool FindNameId(std::string_view s, NameId &out) noexcept;
+    std::string_view NameFromId(NameId id) noexcept;
     // Compute FNV-based type id for a type
     template <class T>
     inline NGIN::UInt64 TypeIdOf()
@@ -70,6 +106,7 @@ namespace NGIN::Reflection
     struct FieldRuntimeDesc
     {
       std::string_view name;
+      NameId nameId{static_cast<NameId>(-1)};
       NGIN::UInt64 typeId;
       NGIN::UIntSize sizeBytes{0};
       void *(*GetMut)(void *){nullptr};
@@ -82,6 +119,7 @@ namespace NGIN::Reflection
     struct MethodRuntimeDesc
     {
       std::string_view name;
+      NameId nameId{static_cast<NameId>(-1)};
       NGIN::UInt64 returnTypeId;
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
       std::expected<class Any, Error> (*Invoke)(void *, const class Any *, NGIN::UIntSize){nullptr};
@@ -98,27 +136,25 @@ namespace NGIN::Reflection
     struct TypeRuntimeDesc
     {
       std::string_view qualifiedName;
+      NameId qualifiedNameId{static_cast<NameId>(-1)};
       NGIN::UInt64 typeId;
       NGIN::UIntSize sizeBytes;
       NGIN::UIntSize alignBytes;
       NGIN::Containers::Vector<FieldRuntimeDesc> fields;
+      NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> fieldIndex;
       NGIN::Containers::Vector<MethodRuntimeDesc> methods;
       NGIN::Containers::Vector<CtorRuntimeDesc> constructors;
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
-      NGIN::Containers::FlatHashMap<std::string_view, NGIN::Containers::Vector<NGIN::UInt32>> methodOverloads;
+      NGIN::Containers::FlatHashMap<NameId, NGIN::Containers::Vector<NGIN::UInt32>> methodOverloads;
     };
 
     struct Registry
     {
       NGIN::Containers::Vector<TypeRuntimeDesc> types;
       NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::UInt32> byTypeId;
-      NGIN::Containers::FlatHashMap<std::string_view, NGIN::UInt32> byName;
+      NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> byName;
 
-      // Minimal string interner storage (prototype):
-      // - Owns strings so returned string_view remains stable
-      // - Buckets by 64-bit hash with collision check per-bucket
-      NGIN::Containers::Vector<std::unique_ptr<std::string>> stringStore;
-      NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::Containers::Vector<std::string_view>> internBuckets;
+      StringInterner names;
     };
 
     Registry &GetRegistry() noexcept;
@@ -211,7 +247,8 @@ namespace NGIN::Reflection
 
       // Create a new record with defaults
       TypeRuntimeDesc rec{};
-      rec.qualifiedName = InternName(NGIN::Meta::TypeName<U>::qualifiedName); // default name derived; user override optional
+      rec.qualifiedNameId = InternNameId(NGIN::Meta::TypeName<U>::qualifiedName);
+      rec.qualifiedName = NameFromId(rec.qualifiedNameId); // default name derived; user override optional
       rec.typeId = tid;
       rec.sizeBytes = sizeof(U);
       rec.alignBytes = alignof(U);
@@ -232,7 +269,7 @@ namespace NGIN::Reflection
       const auto idx = static_cast<NGIN::UInt32>(reg.types.Size());
       reg.types.PushBack(std::move(rec));
       reg.byTypeId.Insert(tid, idx);
-      reg.byName.Insert(reg.types[idx].qualifiedName, idx);
+      reg.byName.Insert(reg.types[idx].qualifiedNameId, idx);
 
       if constexpr (HasNginReflectWithBuilder<U>)
       {
@@ -375,7 +412,10 @@ namespace NGIN::Reflection
     {
       const auto &reg = detail::GetRegistry();
       const auto &tdesc = reg.types[m_h.index];
-      auto *vec = tdesc.methodOverloads.GetPtr(name);
+      NameId nid{};
+      if (!detail::FindNameId(name, nid))
+        return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+      auto *vec = tdesc.methodOverloads.GetPtr(nid);
       if (!vec)
         return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
       // Desired param type ids
