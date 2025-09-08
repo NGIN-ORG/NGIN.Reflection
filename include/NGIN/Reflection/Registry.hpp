@@ -230,7 +230,7 @@ namespace NGIN::Reflection
       if (value.type_id() != tid)
         return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
       auto *c = static_cast<C *>(obj);
-      (c->*MemberPtr) = value.as<M>();
+      (c->*MemberPtr) = value.As<M>();
       return {};
     }
 
@@ -354,7 +354,7 @@ namespace NGIN::Reflection
       }
       else
       {
-        return r->template as<R>();
+        return r->template As<R>();
       }
     }
 

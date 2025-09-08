@@ -41,7 +41,7 @@ int main()
     int sum = 0;
     for (int i=0;i<10000;++i) {
       auto out = m_add.Invoke(&o, &arg, 1).value();
-      sum += out.as<int>();
+      sum += out.As<int>();
     }
     ctx.doNotOptimize(sum);
     ctx.stop(); }, "Method Invoke add(int) 10k");
@@ -85,7 +85,7 @@ int main()
     int sum = 0;
     for (int i=0;i<10000;++i) {
       auto out = m_add.Invoke(&o, &arg, 1).value();
-      sum += out.as<int>();
+      sum += out.As<int>();
     }
     ctx.doNotOptimize(sum);
     ctx.stop(); }, "Method Invoke add(conv double->int) 10k");

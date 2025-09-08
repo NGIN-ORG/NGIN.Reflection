@@ -32,6 +32,6 @@ suite<"NGIN::Reflection::SpanInvoke"> spanInvokeSuite = []
     std::span<const Any> args{buf, 1};
     auto m = t.ResolveMethod("inc", args).value();
     auto out = m.Invoke(&c, args).value();
-    expect(eq(out.as<int>(), 42));
+    expect(eq(out.As<int>(), 42));
   };
 };

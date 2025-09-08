@@ -28,7 +28,7 @@ auto t = NGIN::Reflection::TypeOf<User>();
 auto f = t.GetField("id").value();
 User u{};
 (void)f.SetAny(&u, NGIN::Reflection::Any::make(42));
-auto v = f.GetAny(&u).as<int>(); // 42
+auto v = f.GetAny(&u).As<int>(); // 42
 ```
 
 ### Methods (overloads, conversions, and typed invocations)
@@ -51,7 +51,7 @@ auto tm = TypeOf<Math>(); Math m{};
 // Resolve by runtime args (promotions/conversions applied)
 Any args[2] = { Any::make(3), Any::make(2.5) };
 auto mr = tm.ResolveMethod("mul", args, 2).value();
-auto out = mr.invoke(&m, args, 2).value().as<double>();
+auto out = mr.invoke(&m, args, 2).value().As<double>();
 
 // Resolve by compile-time signature (exact match)
 auto mi = tm.ResolveMethod<int,int,int>("mul").value();
@@ -227,6 +227,14 @@ cmake -S . -B build -DNGIN_REFLECTION_BUILD_TESTS=ON \
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
+
+### ABI (V1) — Exporting a Registry Blob
+
+- Enable with `-DNGIN_REFLECTION_ENABLE_ABI=ON`.
+- Header: `#include <NGIN/Reflection/ABI.hpp>`.
+- Symbol: `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out);`
+- Layout: see `include/NGIN/Reflection/ABI.hpp` for `NGINReflectionHeaderV1` and record structs. The blob contains no raw pointers; string data is referenced via offsets.
+- Host-side merge (skeleton): `#include <NGIN/Reflection/ABIMerge.hpp>` then `MergeRegistryV1(mod, &stats, &err)`. The initial implementation validates and records basic stats; full dedup/reindexing follows.
 
 Options:
 

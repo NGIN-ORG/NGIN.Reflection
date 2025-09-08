@@ -33,7 +33,7 @@ suite<"NGIN::Reflection::Constructors"> ctors = []
   {
     auto t = TypeOf<Point>();
     auto any = t.DefaultConstruct().value();
-    auto p = any.as<Point>();
+    auto p = any.As<Point>();
     expect(eq(p.x, 0));
     expect(eq(p.y, 0));
   };
@@ -43,7 +43,7 @@ suite<"NGIN::Reflection::Constructors"> ctors = []
     auto t = TypeOf<Point>();
     Any args[2] = {Any::make(3), Any::make(4)};
     auto any = t.Construct(args, 2).value();
-    auto p = any.as<Point>();
+    auto p = any.As<Point>();
     expect(eq(p.x, 3));
     expect(eq(p.y, 4));
   };
@@ -53,7 +53,7 @@ suite<"NGIN::Reflection::Constructors"> ctors = []
     auto t = TypeOf<Point>();
     Any args[2] = {Any::make(3.5), Any::make(4.0f)};
     auto any = t.Construct(args, 2).value();
-    auto p = any.as<Point>();
+    auto p = any.As<Point>();
     expect(eq(p.x, 3));
     expect(eq(p.y, 4));
   };

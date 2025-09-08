@@ -35,8 +35,8 @@ suite<"NGIN::Reflection::TypedResolve"> typedResolveSuite = []
     M obj{};
     Any ii[2] = {Any::make(3), Any::make(4)};
     Any ff[2] = {Any::make(2.0f), Any::make(5.0f)};
-    expect(eq(m1.Invoke(&obj, ii, 2).value().as<int>(), 12));
-    expect(eq(m2.Invoke(&obj, ff, 2).value().as<float>(), 10.0f));
+    expect(eq(m1.Invoke(&obj, ii, 2).value().As<int>(), 12));
+    expect(eq(m2.Invoke(&obj, ff, 2).value().As<float>(), 10.0f));
   };
 
   "Resolve_Void_Return"_test = []

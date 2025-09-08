@@ -107,13 +107,13 @@ namespace NGIN::Reflection
     }
 
     template <class T>
-    T &as()
+    T &As()
     {
       using U = std::remove_cv_t<std::remove_reference_t<T>>;
       return *reinterpret_cast<U *>(const_cast<void *>(raw_data()));
     }
     template <class T>
-    const T &as() const
+    const T &As() const
     {
       using U = std::remove_cv_t<std::remove_reference_t<T>>;
       return *reinterpret_cast<const U *>(raw_data());

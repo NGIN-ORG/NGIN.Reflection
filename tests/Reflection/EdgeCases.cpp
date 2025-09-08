@@ -72,15 +72,15 @@ suite<"NGIN::Reflection::Edge"> edge = []
 
     Any ii[2] = {Any::make(3), Any::make(4)};
     auto m1 = t.ResolveMethod("mul", ii, 2).value();
-    expect(eq(m1.Invoke(&math, ii, 2).value().as<int>(), 12));
+    expect(eq(m1.Invoke(&math, ii, 2).value().As<int>(), 12));
 
     Any id[2] = {Any::make(3), Any::make(2.5)};
     auto m2 = t.ResolveMethod("mul", id, 2).value();
-    expect(eq(m2.Invoke(&math, id, 2).value().as<double>(), 7.5));
+    expect(eq(m2.Invoke(&math, id, 2).value().As<double>(), 7.5));
 
     Any ff[2] = {Any::make(2.0f), Any::make(5.0f)};
     auto m3 = t.ResolveMethod("mul", ff, 2).value();
-    expect(eq(m3.Invoke(&math, ff, 2).value().as<float>(), 10.0f));
+    expect(eq(m3.Invoke(&math, ff, 2).value().As<float>(), 10.0f));
   };
 
   "Resolve_NoViable_And_Conversion_Fail"_test = []
@@ -112,7 +112,7 @@ suite<"NGIN::Reflection::Edge"> edge = []
     b.v = 99;
     Any a = Any::make(b); // heap fallback (sizeof Big > 32)
     Any c = a;            // copy
-    expect(eq(c.as<Big>().v, 99));
-    expect(eq(c.as<Big>().buf[0], char{42}));
+    expect(eq(c.As<Big>().v, 99));
+    expect(eq(c.As<Big>().buf[0], char{42}));
   };
 };

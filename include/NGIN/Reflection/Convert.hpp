@@ -27,25 +27,40 @@ namespace NGIN::Reflection::detail
     const auto tid = src.type_id();
     if (tid == TypeIdOf<Dest>())
     {
-      return src.template as<Dest>();
+      return src.template As<Dest>();
     }
     if constexpr (is_numeric_v<Dest>)
     {
-      if (tid == TypeIdOf<bool>())                 return static_cast<Dest>(src.template as<bool>());
-      if (tid == TypeIdOf<signed char>())          return static_cast<Dest>(src.template as<signed char>());
-      if (tid == TypeIdOf<unsigned char>())        return static_cast<Dest>(src.template as<unsigned char>());
-      if (tid == TypeIdOf<char>())                 return static_cast<Dest>(src.template as<char>());
-      if (tid == TypeIdOf<short>())                return static_cast<Dest>(src.template as<short>());
-      if (tid == TypeIdOf<unsigned short>())       return static_cast<Dest>(src.template as<unsigned short>());
-      if (tid == TypeIdOf<int>())                  return static_cast<Dest>(src.template as<int>());
-      if (tid == TypeIdOf<unsigned int>())         return static_cast<Dest>(src.template as<unsigned int>());
-      if (tid == TypeIdOf<long>())                 return static_cast<Dest>(src.template as<long>());
-      if (tid == TypeIdOf<unsigned long>())        return static_cast<Dest>(src.template as<unsigned long>());
-      if (tid == TypeIdOf<long long>())            return static_cast<Dest>(src.template as<long long>());
-      if (tid == TypeIdOf<unsigned long long>())   return static_cast<Dest>(src.template as<unsigned long long>());
-      if (tid == TypeIdOf<float>())                return static_cast<Dest>(src.template as<float>());
-      if (tid == TypeIdOf<double>())               return static_cast<Dest>(src.template as<double>());
-      if (tid == TypeIdOf<long double>())          return static_cast<Dest>(src.template as<long double>());
+      if (tid == TypeIdOf<bool>())
+        return static_cast<Dest>(src.template As<bool>());
+      if (tid == TypeIdOf<signed char>())
+        return static_cast<Dest>(src.template As<signed char>());
+      if (tid == TypeIdOf<unsigned char>())
+        return static_cast<Dest>(src.template As<unsigned char>());
+      if (tid == TypeIdOf<char>())
+        return static_cast<Dest>(src.template As<char>());
+      if (tid == TypeIdOf<short>())
+        return static_cast<Dest>(src.template As<short>());
+      if (tid == TypeIdOf<unsigned short>())
+        return static_cast<Dest>(src.template As<unsigned short>());
+      if (tid == TypeIdOf<int>())
+        return static_cast<Dest>(src.template As<int>());
+      if (tid == TypeIdOf<unsigned int>())
+        return static_cast<Dest>(src.template As<unsigned int>());
+      if (tid == TypeIdOf<long>())
+        return static_cast<Dest>(src.template As<long>());
+      if (tid == TypeIdOf<unsigned long>())
+        return static_cast<Dest>(src.template As<unsigned long>());
+      if (tid == TypeIdOf<long long>())
+        return static_cast<Dest>(src.template As<long long>());
+      if (tid == TypeIdOf<unsigned long long>())
+        return static_cast<Dest>(src.template As<unsigned long long>());
+      if (tid == TypeIdOf<float>())
+        return static_cast<Dest>(src.template As<float>());
+      if (tid == TypeIdOf<double>())
+        return static_cast<Dest>(src.template As<double>());
+      if (tid == TypeIdOf<long double>())
+        return static_cast<Dest>(src.template As<long double>());
     }
     return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type not convertible"});
   }

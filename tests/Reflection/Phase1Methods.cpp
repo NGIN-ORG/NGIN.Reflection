@@ -39,7 +39,7 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
     Calc c{2};
     Any args[1] = {Any::make(5)};
     auto out = m.Invoke(&c, args, 1).value();
-    expect(eq(out.as<int>(), 7));
+    expect(eq(out.As<int>(), 7));
   };
 
   "Field_SetAny_TypeChecked"_test = []
@@ -54,7 +54,7 @@ suite<"NGIN::Reflection::Phase1Methods"> reflPhase1Methods = []
     expect(eq(c.base, 10));
     // GetAny returns the current value
     auto av = f.GetAny(&c);
-    expect(eq(av.as<int>(), 10));
+    expect(eq(av.As<int>(), 10));
     // Type mismatch should fail
     expect(!f.SetAny(&c, Any::make(3.14f)).has_value());
   };

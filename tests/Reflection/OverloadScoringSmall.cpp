@@ -34,7 +34,7 @@ suite<"NGIN::Reflection::OverloadScoringSmall"> over2 = []
     Any arg = Any::make(static_cast<char>(5));
     auto m = t.ResolveMethod("f", &arg, 1).value();
     auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.as<int>(), 1));
+    expect(eq(out.As<int>(), 1));
   };
 
   "Short_Promotes_To_Int"_test = []
@@ -44,7 +44,7 @@ suite<"NGIN::Reflection::OverloadScoringSmall"> over2 = []
     Any arg = Any::make(static_cast<short>(7));
     auto m = t.ResolveMethod("f", &arg, 1).value();
     auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.as<int>(), 1));
+    expect(eq(out.As<int>(), 1));
   };
 
   "Float_Promotes_To_Double"_test = []
@@ -54,7 +54,7 @@ suite<"NGIN::Reflection::OverloadScoringSmall"> over2 = []
     Any arg = Any::make(1.5f);
     auto m = t.ResolveMethod("f", &arg, 1).value();
     auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.as<double>(), 3.0));
+    expect(eq(out.As<double>(), 3.0));
   };
 
   "Long_Prefers_Long_Over_Int"_test = []
@@ -64,6 +64,6 @@ suite<"NGIN::Reflection::OverloadScoringSmall"> over2 = []
     Any arg = Any::make(static_cast<long>(9));
     auto m = t.ResolveMethod("f", &arg, 1).value();
     auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.as<long>(), 2));
+    expect(eq(out.As<long>(), 2));
   };
 };

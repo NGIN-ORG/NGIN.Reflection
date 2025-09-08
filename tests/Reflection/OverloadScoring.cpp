@@ -50,7 +50,7 @@ suite<"NGIN::Reflection::OverloadScoring"> over = []
     Any arg = Any::make(3.14);
     auto m = t.ResolveMethod("f", &arg, 1).value();
     auto out = m.Invoke(&s, &arg, 1).value();
-    expect(eq(out.as<double>(), 2.0)); // double overload
+    expect(eq(out.As<double>(), 2.0)); // double overload
   };
 
   "Promotion_Beats_Conversion"_test = []
@@ -60,7 +60,7 @@ suite<"NGIN::Reflection::OverloadScoring"> over = []
     Any arg = Any::make(2.0f); // float
     auto m = t.ResolveMethod("g", &arg, 1).value();
     auto out = m.Invoke(&s, &arg, 1).value();
-    expect(eq(out.as<double>(), 2.0)); // picks double (promotion), not int (conversion)
+    expect(eq(out.As<double>(), 2.0)); // picks double (promotion), not int (conversion)
   };
 
   "Narrowing_Penalized"_test = []
@@ -71,7 +71,7 @@ suite<"NGIN::Reflection::OverloadScoring"> over = []
     // Ensure double chosen over int; if only int existed, it would be narrowing
     auto m = t.ResolveMethod("f", &arg, 1).value();
     auto out = m.Invoke(&s, &arg, 1).value();
-    expect(eq(out.as<double>(), 2.0));
+    expect(eq(out.As<double>(), 2.0));
   };
 
   "Unsigned_Signed_Preference"_test = []

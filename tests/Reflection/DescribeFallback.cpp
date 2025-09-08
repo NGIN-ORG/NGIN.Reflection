@@ -11,7 +11,8 @@ using namespace boost::ut;
 // Provide a Describe<T> specialization for a 3rd-party type we can't modify
 namespace NGIN::Reflection
 {
-  template <> struct Describe<std::pair<int, int>>
+  template <>
+  struct Describe<std::pair<int, int>>
   {
     static void Do(Builder<std::pair<int, int>> &b)
     {
@@ -43,8 +44,8 @@ suite<"NGIN::Reflection::DescribeFallback"> describeFallbackSuite = []
     expect(eq(p.second, 7));
 
     // Round-trip via Any
-    expect(eq(fFirst.GetAny(&p).as<int>(), 42));
-    expect(eq(fSecond.GetAny(&p).as<int>(), 7));
+    expect(eq(fFirst.GetAny(&p).As<int>(), 42));
+    expect(eq(fSecond.GetAny(&p).As<int>(), 7));
   };
 
   "CVRef_Normalization_SameRecord"_test = []
@@ -56,4 +57,3 @@ suite<"NGIN::Reflection::DescribeFallback"> describeFallbackSuite = []
     expect(eq(t0.FieldCount(), t1.FieldCount()));
   };
 };
-
