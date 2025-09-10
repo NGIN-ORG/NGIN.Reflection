@@ -83,7 +83,7 @@ if(NGIN_REFLECTION_ENABLE_ABI)
   target_include_directories(InteropPluginA PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(InteropPluginA PRIVATE NGIN::Base)
   target_compile_features(InteropPluginA PRIVATE cxx_std_23)
-  target_compile_definitions(InteropPluginA PRIVATE NGIN_REFLECTION_ENABLE_ABI=1)
+  target_compile_definitions(InteropPluginA PRIVATE NGIN_REFLECTION_ENABLE_ABI=1 NGIN_REFLECTION_EXPORTS)
 
   add_library(InteropPluginB SHARED
     ${CMAKE_SOURCE_DIR}/src/Registry.cpp
@@ -92,7 +92,7 @@ if(NGIN_REFLECTION_ENABLE_ABI)
   target_include_directories(InteropPluginB PRIVATE ${CMAKE_SOURCE_DIR}/include)
   target_link_libraries(InteropPluginB PRIVATE NGIN::Base)
   target_compile_features(InteropPluginB PRIVATE cxx_std_23)
-  target_compile_definitions(InteropPluginB PRIVATE NGIN_REFLECTION_ENABLE_ABI=1)
+  target_compile_definitions(InteropPluginB PRIVATE NGIN_REFLECTION_ENABLE_ABI=1 NGIN_REFLECTION_EXPORTS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_link_libraries(InteropPluginA PRIVATE atomic)
     target_link_libraries(InteropPluginB PRIVATE atomic)
