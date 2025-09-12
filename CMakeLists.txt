@@ -72,17 +72,22 @@ target_link_libraries(NGIN.Reflection
     NGIN::Base
 )
 
-# Platform and export macros
+# Platform and export macros (avoid generator expression on TYPE without target)
 target_compile_definitions(NGIN.Reflection
   PUBLIC
-    $<$<STREQUAL:$<PLATFORM_ID>,Windows>:NGIN_PLATFORM=\"Windows\">
-    $<$<STREQUAL:$<PLATFORM_ID>,Darwin>:NGIN_PLATFORM=\"macOS\">
-    $<$<STREQUAL:$<PLATFORM_ID>,Linux>:NGIN_PLATFORM=\"Linux\">
-    $<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,STATIC_LIBRARY>:NGIN_REFLECTION_STATIC=1>
-    $<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,SHARED_LIBRARY>:NGIN_REFLECTION_SHARED=1>
-  PRIVATE
-    $<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,SHARED_LIBRARY>:NGIN_REFLECTION_EXPORTS=1>
+    $<$<STREQUAL:$<PLATFORM_ID>,Windows>:NGIN_PLATFORM=\"Windows\"> 
+    $<$<STREQUAL:$<PLATFORM_ID>,Darwin>:NGIN_PLATFORM=\"macOS\"> 
+    $<$<STREQUAL:$<PLATFORM_ID>,Linux>:NGIN_PLATFORM=\"Linux\"> 
 )
+
+# Determine library type to set static/shared/export defines reliably for consumers
+get_target_property(_ngin_reflection_type NGIN.Reflection TYPE)
+if(_ngin_reflection_type STREQUAL "STATIC_LIBRARY")
+  target_compile_definitions(NGIN.Reflection PUBLIC NGIN_REFLECTION_STATIC=1)
+else()
+  # Shared or module
+  target_compile_definitions(NGIN.Reflection PUBLIC NGIN_REFLECTION_SHARED=1 NGIN_REFLECTION_EXPORTS=1)
+endif()
 
 add_library(NGIN::Reflection ALIAS NGIN.Reflection)
 

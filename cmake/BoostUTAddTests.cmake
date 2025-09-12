@@ -9,7 +9,7 @@
 # Optional inputs:
 #   TEST_SOURCE      - path to the .cpp containing the suite<> declaration; used to auto-detect the suite name
 #   SUITE_HINT       - explicit suite name hint (overrides auto-detection)
-#   CASE_SUITE_MAP   - list like "CaseA=>SuiteX;CaseB=>SuiteY" to map individual cases
+#   CASE_SUITE_MAP   - list like "CaseA::SuiteX;CaseB::SuiteY" to map individual cases
 #
 # Behavior:
 #   - Prefer parsing `--list --use-colour no` (suites + tests).
@@ -23,10 +23,10 @@ set(tests)
 set(current_suite "")
 set(case_suite_map "")
 
-# Build a simple lookup from CASE_SUITE_MAP entries of the form "case=>suite"
+# Build a simple lookup from CASE_SUITE_MAP entries of the form "case::suite"
 if(DEFINED CASE_SUITE_MAP)
   foreach(_pair ${CASE_SUITE_MAP})
-    if(_pair MATCHES "^(.+)=>(.+)$")
+    if(_pair MATCHES "^(.+)::(.+)$")
       # Store as a flat list: key1;val1;key2;val2;...
       list(APPEND case_suite_map "${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
     endif()

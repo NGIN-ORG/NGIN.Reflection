@@ -270,6 +270,25 @@ namespace NGIN::Reflection
       reg.types.PushBack(std::move(rec));
       reg.byTypeId.Insert(tid, idx);
       reg.byName.Insert(reg.types[idx].qualifiedNameId, idx);
+      // MSVC sometimes prefixes qualified names with "class ", "struct ", etc.
+      // Add trimmed aliases to support portable GetType("Namespace::Type") lookups.
+#if defined(_MSC_VER)
+      {
+        auto qn = reg.types[idx].qualifiedName;
+        auto add_alias = [&](std::string_view prefix) {
+          if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
+          {
+            auto trimmed = qn.substr(prefix.size());
+            auto aliasId = InternNameId(trimmed);
+            reg.byName.Insert(aliasId, idx);
+          }
+        };
+        add_alias("class ");
+        add_alias("struct ");
+        add_alias("enum ");
+        add_alias("union ");
+      }
+#endif
 
       if constexpr (HasNginReflectWithBuilder<U>)
       {

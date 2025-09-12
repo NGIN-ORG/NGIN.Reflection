@@ -57,8 +57,8 @@ suite<"NGIN::Reflection::Edge"> edge = []
     auto t = TypeOf<Math>();
     auto m = t.GetMethod("mul").value();
     Math math{};
-    Any none[0] = {};
-    auto out0 = m.Invoke(&math, none, 0);
+    // Use empty span for zero-arity call (portable across compilers)
+    auto out0 = m.Invoke(&math, std::span<const Any>{});
     expect(!out0.has_value());
     Any three[3] = {Any::make(1), Any::make(2), Any::make(3)};
     auto out3 = m.Invoke(&math, three, 3);

@@ -35,7 +35,8 @@ function (discover_boost_ut_test TARGET)
           foreach(_tm ${_test_matches})
             string(REGEX REPLACE "^\"|\"_test$" "" _test_name "${_tm}")
             if(_test_name)
-              list(APPEND _case_suite_map_list "${_test_name}=>${_suite_name}")
+              # Note: Use '::' as delimiter to avoid shell redirection issues on Windows
+              list(APPEND _case_suite_map_list "${_test_name}::${_suite_name}")
             endif()
           endforeach()
         endif()
@@ -80,4 +81,3 @@ function (discover_boost_ut_test TARGET)
     APPEND PROPERTY TEST_INCLUDE_FILES "${ctest_include_file}"
   )
 endfunction()
-

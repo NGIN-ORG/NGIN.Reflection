@@ -208,6 +208,24 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     reg.types.PushBack(std::move(rec));
     reg.byTypeId.Insert(typeId, idx);
     reg.byName.Insert(reg.types[idx].qualifiedNameId, idx);
+#if defined(_MSC_VER)
+    // Add alias without MSVC "class ", "struct ", etc. prefix for portable lookups
+    {
+      auto qn = reg.types[idx].qualifiedName;
+      auto add_alias = [&](std::string_view prefix) {
+        if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
+        {
+          auto trimmed = qn.substr(prefix.size());
+          auto aliasId = InternNameId(trimmed);
+          reg.byName.Insert(aliasId, idx);
+        }
+      };
+      add_alias("class ");
+      add_alias("struct ");
+      add_alias("enum ");
+      add_alias("union ");
+    }
+#endif
     ++added;
   }
 

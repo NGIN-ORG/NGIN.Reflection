@@ -105,11 +105,12 @@ if(NGIN_REFLECTION_ENABLE_ABI)
   set_target_properties(Interop_Host PROPERTIES FOLDER "Tests")
   discover_boost_ut_test(Interop_Host TEST_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/Interop/Host.cpp)
 
-  # Ensure plugins land next to the host test for dlopen
-  foreach(tgt IN ITEMS InteropPluginA InteropPluginB Interop_Host)
+  # Ensure plugins land next to the host test for dlopen across single- and multi-config generators
+  # Place InteropPluginA/B DLLs in the same dir as Interop_Host executable
+  foreach(tgt IN ITEMS InteropPluginA InteropPluginB)
     set_target_properties(${tgt} PROPERTIES
-      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-      LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+      RUNTIME_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Interop_Host>
+      LIBRARY_OUTPUT_DIRECTORY $<TARGET_FILE_DIR:Interop_Host>
       ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
   endforeach()
