@@ -233,6 +233,7 @@ ctest --test-dir build --output-on-failure
 - Enable with `-DNGIN_REFLECTION_ENABLE_ABI=ON`.
 - Header: `#include <NGIN/Reflection/ABI.hpp>`.
 - Symbol: `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out);`
+- Optional init hook: `extern "C" bool NGINReflectionModuleInit();` returning `true` once module registration succeeds.
 - Layout: see `include/NGIN/Reflection/ABI.hpp` for `NGINReflectionHeaderV1` and record structs. The blob contains no raw pointers; string data is referenced via offsets.
 - Host-side merge (skeleton): `#include <NGIN/Reflection/ABIMerge.hpp>` then `MergeRegistryV1(mod, &stats, &err)`. The initial implementation validates and records basic stats; full dedup/reindexing follows.
 
@@ -247,6 +248,22 @@ ABI export:
 
 - Header: `#include <NGIN/Reflection/ABI.hpp>` (function declaration is visible only when `NGIN_REFLECTION_ENABLE_ABI` is defined)
 - Symbol: `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out);`
+
+### Module Initialization Helpers
+
+- Header: `#include <NGIN/Reflection/ModuleInit.hpp>`.
+- Use `EnsureModuleInitialized("ModuleName", fn)` to guard registration logic and run it once per module instance.
+- `fn` receives a `ModuleRegistration &` helper so you can call `RegisterTypes<T...>()` or access the registry directly.
+- Recommended DLL entrypoint pattern:
+
+```cpp
+extern "C" NGIN_REFLECTION_API bool NGINReflectionModuleInit()
+{
+  return NGIN::Reflection::EnsureModuleInitialized("MyPlugin", [](auto &module) {
+    module.RegisterTypes<MyComponent, AnotherComponent>();
+  });
+}
+```
 
 ## Examples & Docs
 

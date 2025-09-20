@@ -1,6 +1,7 @@
 #include <NGIN/Reflection/Builder.hpp>
 #include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/ABI.hpp>
+#include <NGIN/Reflection/ModuleInit.hpp>
 
 namespace Interop
 {
@@ -28,10 +29,10 @@ namespace Interop
   }
 }
 
-static bool s_registerB = [] {
+extern "C" NGIN_REFLECTION_API bool NGINReflectionModuleInit()
+{
   using namespace NGIN::Reflection;
-  auto_register<Interop::Common>();
-  auto_register<Interop::Multiplier>();
-  return true;
-}();
-
+  return EnsureModuleInitialized("InteropPluginB", [](ModuleRegistration &module) {
+    module.RegisterTypes<Interop::Common, Interop::Multiplier>();
+  });
+}

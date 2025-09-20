@@ -1,6 +1,7 @@
 #include <NGIN/Reflection/Builder.hpp>
 #include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/ABI.hpp>
+#include <NGIN/Reflection/ModuleInit.hpp>
 
 namespace Interop
 {
@@ -28,12 +29,12 @@ namespace Interop
   }
 }
 
-// Ensure registration when module is loaded
-static bool s_registerA = [] {
+extern "C" NGIN_REFLECTION_API bool NGINReflectionModuleInit()
+{
   using namespace NGIN::Reflection;
-  auto_register<Interop::Common>();
-  auto_register<Interop::Adder>();
-  return true;
-}();
+  return EnsureModuleInitialized("InteropPluginA", [](ModuleRegistration &module) {
+    module.RegisterTypes<Interop::Common, Interop::Adder>();
+  });
+}
 
 // The ABI export symbol is implemented by NGIN.Reflection compiled into this module

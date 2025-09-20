@@ -79,6 +79,8 @@ static const char *BBase = "libInteropPluginB.so";
 
 using namespace NGIN::Reflection;
 
+using ModuleInitFn = bool (*)();
+
 namespace
 {
   struct LibGuard
@@ -121,6 +123,20 @@ TEST_CASE("LoadsPluginsAndExecutesMergedMetadata", "[reflection][Interop]")
   REQUIRE(a.handle != nullptr);
   INFO("load B from " << bPath);
   REQUIRE(b.handle != nullptr);
+
+  auto initA = reinterpret_cast<ModuleInitFn>(GetSym(a.handle, "NGINReflectionModuleInit"));
+  auto initB = reinterpret_cast<ModuleInitFn>(GetSym(b.handle, "NGINReflectionModuleInit"));
+  INFO("init sym A");
+  REQUIRE(initA != nullptr);
+  INFO("init sym B");
+  REQUIRE(initB != nullptr);
+
+  const bool initAOk = initA();
+  INFO("init A" << (initAOk ? "" : " failed"));
+  REQUIRE(initAOk);
+  const bool initBOk = initB();
+  INFO("init B" << (initBOk ? "" : " failed"));
+  REQUIRE(initBOk);
 
   auto symA = reinterpret_cast<bool (*)(NGINReflectionRegistryV1 *)>(
       GetSym(a.handle, "NGINReflectionExportV1"));

@@ -8,6 +8,7 @@
 #include <NGIN/Reflection/NameUtils.hpp>
 #include <NGIN/Reflection/Builder.hpp>
 #include <NGIN/Reflection/Any.hpp>
+#include <NGIN/Reflection/ModuleInit.hpp>
 #include <NGIN/Meta/TypeName.hpp>
 
 namespace NGIN::Reflection
