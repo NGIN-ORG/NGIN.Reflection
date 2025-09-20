@@ -1,69 +1,73 @@
-// OverloadScoringSmall.cpp — tests for small integer promotions and refined scoring
+// OverloadScoringSmall.cpp — tests for small integer promotions and refined
+// scoring
 
-#include <boost/ut.hpp>
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/Reflection/Reflection.hpp>
 
-using namespace boost::ut;
+namespace SmallDemo {
+struct H {
+  int f(int) const { return 1; }
+  long f(long) const { return 2; }
+  double f(double) const { return 3.0; }
+  friend void ngin_reflect(NGIN::Reflection::Tag<H>,
+                           NGIN::Reflection::Builder<H> &b) {
+    b.method<static_cast<int (H::*)(int) const>(&H::f)>("f");
+    b.method<static_cast<long (H::*)(long) const>(&H::f)>("f");
+    b.method<static_cast<double (H::*)(double) const>(&H::f)>("f");
+  }
+};
+} // namespace SmallDemo
 
-namespace SmallDemo
-{
-  struct H
-  {
-    int f(int) const { return 1; }
-    long f(long) const { return 2; }
-    double f(double) const { return 3.0; }
-    friend void ngin_reflect(NGIN::Reflection::Tag<H>, NGIN::Reflection::Builder<H> &b)
-    {
-      b.method<static_cast<int (H::*)(int) const>(&H::f)>("f");
-      b.method<static_cast<long (H::*)(long) const>(&H::f)>("f");
-      b.method<static_cast<double (H::*)(double) const>(&H::f)>("f");
-    }
-  };
-}
-
-suite<"NGIN::Reflection::OverloadScoringSmall"> over2 = []
-{
+TEST_CASE("CharPromotesToIntOverload",
+          "[reflection][OverloadScoringSmall]") {
   using namespace NGIN::Reflection;
   using SmallDemo::H;
 
-  "Char_Promotes_To_Int"_test = []
-  {
-    auto t = TypeOf<H>();
-    H h{};
-    Any arg = Any::make(static_cast<char>(5));
-    auto m = t.ResolveMethod("f", &arg, 1).value();
-    auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.As<int>(), 1));
-  };
+  auto t = TypeOf<H>();
+  H h{};
+  Any arg = Any::make(static_cast<char>(5));
+  auto m = t.ResolveMethod("f", &arg, 1).value();
+  auto out = m.Invoke(&h, &arg, 1).value();
+  CHECK(out.As<int>() == 1);
+}
 
-  "Short_Promotes_To_Int"_test = []
-  {
-    auto t = TypeOf<H>();
-    H h{};
-    Any arg = Any::make(static_cast<short>(7));
-    auto m = t.ResolveMethod("f", &arg, 1).value();
-    auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.As<int>(), 1));
-  };
+TEST_CASE("ShortPromotesToIntOverload",
+          "[reflection][OverloadScoringSmall]") {
+  using namespace NGIN::Reflection;
+  using SmallDemo::H;
 
-  "Float_Promotes_To_Double"_test = []
-  {
-    auto t = TypeOf<H>();
-    H h{};
-    Any arg = Any::make(1.5f);
-    auto m = t.ResolveMethod("f", &arg, 1).value();
-    auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.As<double>(), 3.0));
-  };
+  auto t = TypeOf<H>();
+  H h{};
+  Any arg = Any::make(static_cast<short>(7));
+  auto m = t.ResolveMethod("f", &arg, 1).value();
+  auto out = m.Invoke(&h, &arg, 1).value();
+  CHECK(out.As<int>() == 1);
+}
 
-  "Long_Prefers_Long_Over_Int"_test = []
-  {
-    auto t = TypeOf<H>();
-    H h{};
-    Any arg = Any::make(static_cast<long>(9));
-    auto m = t.ResolveMethod("f", &arg, 1).value();
-    auto out = m.Invoke(&h, &arg, 1).value();
-    expect(eq(out.As<long>(), 2));
-  };
-};
+TEST_CASE("FloatPromotesToDoubleOverload",
+          "[reflection][OverloadScoringSmall]") {
+  using namespace NGIN::Reflection;
+  using SmallDemo::H;
+
+  auto t = TypeOf<H>();
+  H h{};
+  Any arg = Any::make(1.5f);
+  auto m = t.ResolveMethod("f", &arg, 1).value();
+  auto out = m.Invoke(&h, &arg, 1).value();
+  CHECK(out.As<double>() == Catch::Approx(3.0));
+}
+
+TEST_CASE("LongPrefersLongOverloadOverInt",
+          "[reflection][OverloadScoringSmall]") {
+  using namespace NGIN::Reflection;
+  using SmallDemo::H;
+
+  auto t = TypeOf<H>();
+  H h{};
+  Any arg = Any::make(static_cast<long>(9));
+  auto m = t.ResolveMethod("f", &arg, 1).value();
+  auto out = m.Invoke(&h, &arg, 1).value();
+  CHECK(out.As<long>() == 2);
+}

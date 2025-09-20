@@ -79,16 +79,18 @@ Install/export is configured; consumers can use `find_package(NGINReflection)` w
 
 ## Tests
 
-- Framework: Boost.UT (`boost::ut`) via CPM (see `tests/CMakeLists.txt`).
-- Each `.cpp` (excluding `tests/main.cpp`) becomes its own test executable.
-- Test discovery: `cmake/BoostUTAddTests.cmake` registers each Boost.UT case with CTest, prefixed by the detected suite.
-- Naming: use a suite per file, e.g.:
+- Framework: Catch2 v3 via CPM (see `tests/CMakeLists.txt`).
+- Each `.cpp` becomes its own test executable linking `Catch2::Catch2WithMain`.
+- Test discovery: `catch_discover_tests(...)` registers cases with CTest alongside the owning target.
+- Naming: use descriptive `TEST_CASE` strings and optional tags, e.g.:
 
 ```cpp
-using namespace boost::ut;
-suite<"NGIN::Reflection"> suiteName = [] {
-  "LibraryName"_test = [] { /* ... */ };
-};
+#include <catch2/catch_test_macros.hpp>
+#include <NGIN/Reflection/Reflection.hpp>
+
+TEST_CASE("LibraryName returns module identifier", "[NGIN::Reflection]") {
+  CHECK(NGIN::Reflection::LibraryName() == std::string_view{"NGIN.Reflection"});
+}
 ```
 
 Minimum coverage for new features:

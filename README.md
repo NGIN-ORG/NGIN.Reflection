@@ -238,7 +238,7 @@ ctest --test-dir build --output-on-failure
 
 Options:
 
-- `NGIN_REFLECTION_BUILD_TESTS`: build Boost.UT tests (default ON)
+- `NGIN_REFLECTION_BUILD_TESTS`: build Catch2 tests (default ON)
 - `NGIN_REFLECTION_BUILD_EXAMPLES`: build examples (default OFF)
 - `NGIN_REFLECTION_BUILD_BENCHMARKS`: build microbenchmarks (default OFF)
 - `NGIN_REFLECTION_ENABLE_ABI`: build and export the C ABI entrypoint (default OFF)

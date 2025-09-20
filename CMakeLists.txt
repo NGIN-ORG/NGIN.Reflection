@@ -143,6 +143,8 @@ install(
 if(NGIN_REFLECTION_BUILD_TESTS)
   include(CTest)
   enable_testing()
+  set(NGIN_REFLECTION_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+  set(NGIN_REFLECTION_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
   add_subdirectory(tests)
 endif()
 

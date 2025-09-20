@@ -1,16 +1,20 @@
-#include <boost/ut.hpp>
+#include <catch2/catch_test_macros.hpp>
 
-#include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/ABI.hpp>
 #include <NGIN/Reflection/ABIMerge.hpp>
-#include <vector>
+#include <NGIN/Reflection/Registry.hpp>
+
+#include <cstdint>
 #include <string>
 
 #if defined(_WIN32)
 #include <windows.h>
 using LibHandle = HMODULE;
 static LibHandle OpenLib(const char *path) { return LoadLibraryA(path); }
-static void *GetSym(LibHandle h, const char *name) { return (void *)GetProcAddress(h, name); }
+static void *GetSym(LibHandle h, const char *name)
+{
+  return (void *)GetProcAddress(h, name);
+}
 static void CloseLib(LibHandle h)
 {
   if (h)
@@ -73,64 +77,109 @@ static const char *ABase = "libInteropPluginA.so";
 static const char *BBase = "libInteropPluginB.so";
 #endif
 
-using namespace boost::ut;
 using namespace NGIN::Reflection;
 
-suite<"Interop.Host"> interopHostSuite = []
+namespace
 {
-  "Loads plugins, merges, and invokes"_test = []
+  struct LibGuard
   {
-    auto dir = GetExeDir();
-    auto aPath = dir + "/" + ABase;
-    auto bPath = dir + "/" + BBase;
-    LibHandle a = OpenLib(aPath.c_str());
-    LibHandle b = OpenLib(bPath.c_str());
-    expect(a != nullptr) << "load A";
-    expect(b != nullptr) << "load B";
+    explicit LibGuard(LibHandle h = nullptr) : handle(h) {}
+    ~LibGuard() { CloseLib(handle); }
 
-    auto symA = reinterpret_cast<bool (*)(NGINReflectionRegistryV1 *)>(GetSym(a, "NGINReflectionExportV1"));
-    auto symB = reinterpret_cast<bool (*)(NGINReflectionRegistryV1 *)>(GetSym(b, "NGINReflectionExportV1"));
-    expect(symA != nullptr) << "sym A";
-    expect(symB != nullptr) << "sym B";
+    LibGuard(const LibGuard &) = delete;
+    LibGuard &operator=(const LibGuard &) = delete;
 
-    NGINReflectionRegistryV1 modA{}, modB{};
-    bool okA = symA && symA(&modA);
-    bool okB = symB && symB(&modB);
-    expect(okA) << "export A";
-    expect(okB) << "export B";
+    LibGuard(LibGuard &&other) noexcept : handle(other.handle)
+    {
+      other.handle = nullptr;
+    }
+    LibGuard &operator=(LibGuard &&other) noexcept
+    {
+      if (this != &other)
+      {
+        CloseLib(handle);
+        handle = other.handle;
+        other.handle = nullptr;
+      }
+      return *this;
+    }
 
-    MergeStats stats{};
-    const char *err = nullptr;
-    expect(MergeRegistryV1(modA, &stats, &err)) << (err ? err : "");
-    expect(MergeRegistryV1(modB, &stats, &err)) << (err ? err : "");
-    expect(stats.modulesMerged == 2_u64);
-    expect(stats.typesAdded >= 2_u64);
-    expect(stats.typesConflicted >= 1_u64);
-
-    // Invoke Adder.Add(2,3) == 5
-    auto tAdder = GetType("Interop::Adder");
-    expect(bool(tAdder)) << "type Adder";
-    auto mAdd = tAdder->ResolveMethod<int, int, int>("Add");
-    expect(bool(mAdd)) << "method Add";
-    auto anyObj = tAdder->DefaultConstruct();
-    expect(bool(anyObj)) << "construct";
-    // Invoke using the function pointer table bound thunks
-    auto result = mAdd->InvokeAs<int>(const_cast<void *>(anyObj->raw_data()), 2, 3);
-    expect(bool(result)) << "invoke add";
-    expect(*result == 5_i) << "2+3=5";
-
-    // Invoke Multiplier.Mul(2,3) == 6
-    auto tMul = GetType("Interop::Multiplier");
-    expect(bool(tMul)) << "type Multiplier";
-    auto mMul = tMul->ResolveMethod<int, int, int>("Mul");
-    expect(bool(mMul)) << "method Mul";
-    auto anyObj2 = tMul->DefaultConstruct();
-    expect(bool(anyObj2)) << "construct";
-    auto result2 = mMul->InvokeAs<int>(const_cast<void *>(anyObj2->raw_data()), 2, 3);
-    expect(bool(result2)) << "invoke mul";
-    expect(*result2 == 6_i) << "2*3=6";
-
-    CloseLib(b);
-    CloseLib(a);
+    LibHandle handle{nullptr};
   };
-};
+} // namespace
+
+TEST_CASE("LoadsPluginsAndExecutesMergedMetadata", "[reflection][Interop]")
+{
+  auto dir = GetExeDir();
+  auto aPath = dir + "/" + ABase;
+  auto bPath = dir + "/" + BBase;
+
+  LibGuard a{OpenLib(aPath.c_str())};
+  LibGuard b{OpenLib(bPath.c_str())};
+
+  INFO("load A from " << aPath);
+  REQUIRE(a.handle != nullptr);
+  INFO("load B from " << bPath);
+  REQUIRE(b.handle != nullptr);
+
+  auto symA = reinterpret_cast<bool (*)(NGINReflectionRegistryV1 *)>(
+      GetSym(a.handle, "NGINReflectionExportV1"));
+  auto symB = reinterpret_cast<bool (*)(NGINReflectionRegistryV1 *)>(
+      GetSym(b.handle, "NGINReflectionExportV1"));
+  INFO("sym A");
+  REQUIRE(symA != nullptr);
+  INFO("sym B");
+  REQUIRE(symB != nullptr);
+
+  NGINReflectionRegistryV1 modA{}, modB{};
+  bool okA = symA(&modA);
+  bool okB = symB(&modB);
+  INFO("export A");
+  REQUIRE(okA);
+  INFO("export B");
+  REQUIRE(okB);
+
+  MergeStats stats{};
+  const char *err = nullptr;
+  const bool mergeA = MergeRegistryV1(modA, &stats, &err);
+  INFO("merge A" << (err ? err : ""));
+  REQUIRE(mergeA);
+
+  err = nullptr;
+  const bool mergeB = MergeRegistryV1(modB, &stats, &err);
+  INFO("merge B" << (err ? err : ""));
+  REQUIRE(mergeB);
+  CHECK(stats.modulesMerged == std::uint64_t{2});
+  CHECK(stats.typesAdded >= std::uint64_t{2});
+  CHECK(stats.typesConflicted >= std::uint64_t{1});
+
+  auto tAdder = GetType("Interop::Adder");
+  INFO("type Adder");
+  REQUIRE(tAdder.has_value());
+  auto mAdd = tAdder->ResolveMethod<int, int, int>("Add");
+  INFO("method Add");
+  REQUIRE(mAdd.has_value());
+  auto anyObj = tAdder->DefaultConstruct();
+  INFO("construct");
+  REQUIRE(anyObj.has_value());
+  auto result =
+      mAdd->InvokeAs<int>(const_cast<void *>(anyObj->raw_data()), 2, 3);
+  INFO("invoke add");
+  REQUIRE(result.has_value());
+  CHECK(*result == 5);
+
+  auto tMul = GetType("Interop::Multiplier");
+  INFO("type Multiplier");
+  REQUIRE(tMul.has_value());
+  auto mMul = tMul->ResolveMethod<int, int, int>("Mul");
+  INFO("method Mul");
+  REQUIRE(mMul.has_value());
+  auto anyObj2 = tMul->DefaultConstruct();
+  INFO("construct");
+  REQUIRE(anyObj2.has_value());
+  auto result2 =
+      mMul->InvokeAs<int>(const_cast<void *>(anyObj2->raw_data()), 2, 3);
+  INFO("invoke mul");
+  REQUIRE(result2.has_value());
+  CHECK(*result2 == 6);
+}

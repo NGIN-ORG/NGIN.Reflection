@@ -1,10 +1,8 @@
 // Constructors.cpp — tests for default and parameterized constructors
 
-#include <boost/ut.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <NGIN/Reflection/Reflection.hpp>
-
-using namespace boost::ut;
 
 namespace CtorDemo
 {
@@ -14,7 +12,8 @@ namespace CtorDemo
     int y{0};
     Point() = default;
     Point(int a, int b) : x(a), y(b) {}
-    friend void ngin_reflect(NGIN::Reflection::Tag<Point>, NGIN::Reflection::Builder<Point> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<Point>,
+                             NGIN::Reflection::Builder<Point> &b)
     {
       b.set_name("CtorDemo::Point");
       b.field<&Point::x>("x");
@@ -22,39 +21,45 @@ namespace CtorDemo
       b.constructor<int, int>();
     }
   };
-}
+} // namespace CtorDemo
 
-suite<"NGIN::Reflection::Constructors"> ctors = []
+TEST_CASE("DefaultConstructorProducesZeroPoint",
+          "[reflection][Constructors]")
 {
   using namespace NGIN::Reflection;
   using CtorDemo::Point;
 
-  "Default_Construct"_test = []
-  {
-    auto t = TypeOf<Point>();
-    auto any = t.DefaultConstruct().value();
-    auto p = any.As<Point>();
-    expect(eq(p.x, 0));
-    expect(eq(p.y, 0));
-  };
+  auto t = TypeOf<Point>();
+  auto any = t.DefaultConstruct().value();
+  auto p = any.As<Point>();
+  CHECK(p.x == 0);
+  CHECK(p.y == 0);
+}
 
-  "Parameterized_Construct_With_Ints"_test = []
-  {
-    auto t = TypeOf<Point>();
-    Any args[2] = {Any::make(3), Any::make(4)};
-    auto any = t.Construct(args, 2).value();
-    auto p = any.As<Point>();
-    expect(eq(p.x, 3));
-    expect(eq(p.y, 4));
-  };
+TEST_CASE("ParameterizedConstructorAcceptsInts",
+          "[reflection][Constructors]")
+{
+  using namespace NGIN::Reflection;
+  using CtorDemo::Point;
 
-  "Parameterized_Construct_With_Convertible"_test = []
-  {
-    auto t = TypeOf<Point>();
-    Any args[2] = {Any::make(3.5), Any::make(4.0f)};
-    auto any = t.Construct(args, 2).value();
-    auto p = any.As<Point>();
-    expect(eq(p.x, 3));
-    expect(eq(p.y, 4));
-  };
-};
+  auto t = TypeOf<Point>();
+  Any args[2] = {Any::make(3), Any::make(4)};
+  auto any = t.Construct(args, 2).value();
+  auto p = any.As<Point>();
+  CHECK(p.x == 3);
+  CHECK(p.y == 4);
+}
+
+TEST_CASE("ParameterizedConstructorConvertsArguments",
+          "[reflection][Constructors]")
+{
+  using namespace NGIN::Reflection;
+  using CtorDemo::Point;
+
+  auto t = TypeOf<Point>();
+  Any args[2] = {Any::make(3.5), Any::make(4.0f)};
+  auto any = t.Construct(args, 2).value();
+  auto p = any.As<Point>();
+  CHECK(p.x == 3);
+  CHECK(p.y == 4);
+}
