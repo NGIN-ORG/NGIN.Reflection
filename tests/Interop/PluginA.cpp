@@ -5,7 +5,10 @@
 
 namespace Interop
 {
-  struct Common { int a{1}; };
+  struct Common
+  {
+    int a{1};
+  };
 
   struct Adder
   {
@@ -32,9 +35,8 @@ namespace Interop
 extern "C" NGIN_REFLECTION_API bool NGINReflectionModuleInit()
 {
   using namespace NGIN::Reflection;
-  return EnsureModuleInitialized("InteropPluginA", [](ModuleRegistration &module) {
-    module.RegisterTypes<Interop::Common, Interop::Adder>();
-  });
+  return EnsureModuleInitialized("InteropPluginA", [](ModuleRegistration &module)
+                                 { module.RegisterTypes<Interop::Common, Interop::Adder>(); });
 }
 
 // The ABI export symbol is implemented by NGIN.Reflection compiled into this module

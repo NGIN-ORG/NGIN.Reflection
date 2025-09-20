@@ -57,7 +57,7 @@ namespace NGIN::Reflection
       a.m_type = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
       a.m_copy_ctor = [](void *dst, const void *src)
       { ::new (dst) U(*reinterpret_cast<const U *>(src)); };
-      if (sizeof(U) <= SBO)
+      if constexpr (sizeof(U) <= SBO)
       {
         ::new (a.inline_data()) U(std::forward<T>(v));
         a.m_isHeap = false;
