@@ -4,6 +4,10 @@ project(NGIN.Reflection VERSION 0.1 LANGUAGES CXX)
 #-------------------------------------------------------------------------------
 # Policies
 #-------------------------------------------------------------------------------
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 cmake_policy(SET CMP0077 NEW)
 
 #-------------------------------------------------------------------------------
