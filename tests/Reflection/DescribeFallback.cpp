@@ -30,14 +30,14 @@ TEST_CASE("DescribeFallbackExposesFields", "[reflection][DescribeFallback]")
   auto fSecond = t.GetField("second").value();
 
   std::pair<int, int> p{0, 0};
-  CHECK(fFirst.SetAny(&p, Any::make(42)).has_value());
-  CHECK(fSecond.SetAny(&p, Any::make(7)).has_value());
+  CHECK(fFirst.SetAny(&p, Any{42}).has_value());
+  CHECK(fSecond.SetAny(&p, Any{7}).has_value());
 
   CHECK(p.first == 42);
   CHECK(p.second == 7);
 
-  CHECK(fFirst.GetAny(&p).As<int>() == 42);
-  CHECK(fSecond.GetAny(&p).As<int>() == 7);
+  CHECK(fFirst.GetAny(&p).Cast<int>() == 42);
+  CHECK(fSecond.GetAny(&p).Cast<int>() == 7);
 }
 
 TEST_CASE("DescribeAppliesCvrefNormalization",

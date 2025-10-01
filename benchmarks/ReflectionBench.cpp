@@ -36,12 +36,12 @@ int main()
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
     Obj o{5};
-    Any arg = Any::make(7);
+    Any arg{7};
     ctx.start();
     int sum = 0;
     for (int i=0;i<10000;++i) {
       auto out = m_add.Invoke(&o, &arg, 1).value();
-      sum += out.As<int>();
+      sum += out.Cast<int>();
     }
     ctx.doNotOptimize(sum);
     ctx.stop(); }, "Method Invoke add(int) 10k");
@@ -60,7 +60,7 @@ int main()
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
     Obj o{0};
-    Any val = Any::make(42);
+    Any val{42};
     auto f = t.GetField("n").value();
     ctx.start();
     for (int i=0;i<20000;++i) {
@@ -80,12 +80,12 @@ int main()
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
     Obj o{5};
-    Any arg = Any::make(7.0); // conversion from double to int
+    Any arg{7.0}; // conversion from double to int
     ctx.start();
     int sum = 0;
     for (int i=0;i<10000;++i) {
       auto out = m_add.Invoke(&o, &arg, 1).value();
-      sum += out.As<int>();
+      sum += out.Cast<int>();
     }
     ctx.doNotOptimize(sum);
     ctx.stop(); }, "Method Invoke add(conv double->int) 10k");

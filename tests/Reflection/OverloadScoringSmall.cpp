@@ -27,10 +27,10 @@ TEST_CASE("CharPromotesToIntOverload",
 
   auto t = TypeOf<H>();
   H h{};
-  Any arg = Any::make(static_cast<char>(5));
+  Any arg{static_cast<char>(5)};
   auto m = t.ResolveMethod("f", &arg, 1).value();
   auto out = m.Invoke(&h, &arg, 1).value();
-  CHECK(out.As<int>() == 1);
+  CHECK(out.Cast<int>() == 1);
 }
 
 TEST_CASE("ShortPromotesToIntOverload",
@@ -40,10 +40,10 @@ TEST_CASE("ShortPromotesToIntOverload",
 
   auto t = TypeOf<H>();
   H h{};
-  Any arg = Any::make(static_cast<short>(7));
+  Any arg{static_cast<short>(7)};
   auto m = t.ResolveMethod("f", &arg, 1).value();
   auto out = m.Invoke(&h, &arg, 1).value();
-  CHECK(out.As<int>() == 1);
+  CHECK(out.Cast<int>() == 1);
 }
 
 TEST_CASE("FloatPromotesToDoubleOverload",
@@ -53,10 +53,10 @@ TEST_CASE("FloatPromotesToDoubleOverload",
 
   auto t = TypeOf<H>();
   H h{};
-  Any arg = Any::make(1.5f);
+  Any arg{1.5f};
   auto m = t.ResolveMethod("f", &arg, 1).value();
   auto out = m.Invoke(&h, &arg, 1).value();
-  CHECK(out.As<double>() == Catch::Approx(3.0));
+  CHECK(out.Cast<double>() == Catch::Approx(3.0));
 }
 
 TEST_CASE("LongPrefersLongOverloadOverInt",
@@ -66,8 +66,8 @@ TEST_CASE("LongPrefersLongOverloadOverInt",
 
   auto t = TypeOf<H>();
   H h{};
-  Any arg = Any::make(static_cast<long>(9));
+  Any arg{static_cast<long>(9)};
   auto m = t.ResolveMethod("f", &arg, 1).value();
   auto out = m.Invoke(&h, &arg, 1).value();
-  CHECK(out.As<long>() == 2);
+  CHECK(out.Cast<long>() == 2);
 }

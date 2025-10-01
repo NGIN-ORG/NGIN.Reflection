@@ -31,7 +31,7 @@ TEST_CASE("DefaultConstructorProducesZeroPoint",
 
   auto t = TypeOf<Point>();
   auto any = t.DefaultConstruct().value();
-  auto p = any.As<Point>();
+  auto p = any.Cast<Point>();
   CHECK(p.x == 0);
   CHECK(p.y == 0);
 }
@@ -43,9 +43,9 @@ TEST_CASE("ParameterizedConstructorAcceptsInts",
   using CtorDemo::Point;
 
   auto t = TypeOf<Point>();
-  Any args[2] = {Any::make(3), Any::make(4)};
+  Any args[2] = {Any{3}, Any{4}};
   auto any = t.Construct(args, 2).value();
-  auto p = any.As<Point>();
+  auto p = any.Cast<Point>();
   CHECK(p.x == 3);
   CHECK(p.y == 4);
 }
@@ -57,9 +57,9 @@ TEST_CASE("ParameterizedConstructorConvertsArguments",
   using CtorDemo::Point;
 
   auto t = TypeOf<Point>();
-  Any args[2] = {Any::make(3.5), Any::make(4.0f)};
+  Any args[2] = {Any{3.5}, Any{4.0f}};
   auto any = t.Construct(args, 2).value();
-  auto p = any.As<Point>();
+  auto p = any.Cast<Point>();
   CHECK(p.x == 3);
   CHECK(p.y == 4);
 }

@@ -61,7 +61,7 @@ TEST_CASE("InvokeDetectsWrongArity", "[reflection][EdgeCases]")
   auto out0 = m.Invoke(&math, std::span<const Any>{});
   CHECK_FALSE(out0.has_value());
 
-  Any three[3] = {Any::make(1), Any::make(2), Any::make(3)};
+  Any three[3] = {Any{1}, Any{2}, Any{3}};
   auto out3 = m.Invoke(&math, three, 3);
   CHECK_FALSE(out3.has_value());
 }
@@ -74,17 +74,17 @@ TEST_CASE("ResolveChoosesOverloadsCorrectly", "[reflection][EdgeCases]")
   auto t = TypeOf<Math>();
   Math math{};
 
-  Any ii[2] = {Any::make(3), Any::make(4)};
+  Any ii[2] = {Any{3}, Any{4}};
   auto m1 = t.ResolveMethod("mul", ii, 2).value();
-  CHECK(m1.Invoke(&math, ii, 2).value().As<int>() == 12);
+  CHECK(m1.Invoke(&math, ii, 2).value().Cast<int>() == 12);
 
-  Any id[2] = {Any::make(3), Any::make(2.5)};
+  Any id[2] = {Any{3}, Any{2.5}};
   auto m2 = t.ResolveMethod("mul", id, 2).value();
-  CHECK(m2.Invoke(&math, id, 2).value().As<double>() == Catch::Approx(7.5));
+  CHECK(m2.Invoke(&math, id, 2).value().Cast<double>() == Catch::Approx(7.5));
 
-  Any ff[2] = {Any::make(2.0f), Any::make(5.0f)};
+  Any ff[2] = {Any{2.0f}, Any{5.0f}};
   auto m3 = t.ResolveMethod("mul", ff, 2).value();
-  CHECK(m3.Invoke(&math, ff, 2).value().As<float>() == Catch::Approx(10.0f));
+  CHECK(m3.Invoke(&math, ff, 2).value().Cast<float>() == Catch::Approx(10.0f));
 }
 
 TEST_CASE("ResolveRejectsInvalidOverloads", "[reflection][EdgeCases]")
@@ -94,7 +94,7 @@ TEST_CASE("ResolveRejectsInvalidOverloads", "[reflection][EdgeCases]")
 
   auto t = TypeOf<Math>();
 
-  Any bad[2] = {Any::make(std::string{"x"}), Any::make(2)};
+  Any bad[2] = {Any{std::string{"x"}}, Any{2}};
   auto mr = t.ResolveMethod("mul", bad, 2);
   CHECK_FALSE(mr.has_value());
 }
@@ -123,9 +123,9 @@ TEST_CASE("AnyCopiesHeapFallbackPayloads", "[reflection][EdgeCases]")
   b.buf[0] = 42;
   b.v = 99;
 
-  Any a = Any::make(b);
+  Any a{b};
   Any c = a;
 
-  CHECK(c.As<Big>().v == 99);
-  CHECK(c.As<Big>().buf[0] == char{42});
+  CHECK(c.Cast<Big>().v == 99);
+  CHECK(c.Cast<Big>().buf[0] == char{42});
 }

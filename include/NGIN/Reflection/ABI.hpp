@@ -3,14 +3,9 @@
 
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Reflection/Export.hpp>
+#include <NGIN/Reflection/Types.hpp>
 #include <cstdint>
 #include <expected>
-
-namespace NGIN::Reflection
-{
-  class Any;
-  struct Error;
-}
 
 extern "C"
 {

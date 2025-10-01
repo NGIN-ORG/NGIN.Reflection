@@ -22,9 +22,9 @@ TEST_CASE("SpanOverloadInvocationSucceeds",
 
   auto t = TypeOf<C>();
   C c{};
-  Any buf[1] = {Any::make(41)};
+  Any buf[1] = {Any{41}};
   std::span<const Any> args{buf, 1};
   auto m = t.ResolveMethod("inc", args).value();
   auto out = m.Invoke(&c, args).value();
-  CHECK(out.As<int>() == 42);
+  CHECK(out.Cast<int>() == 42);
 }

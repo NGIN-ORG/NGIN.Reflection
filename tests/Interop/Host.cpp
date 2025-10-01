@@ -179,7 +179,7 @@ TEST_CASE("LoadsPluginsAndExecutesMergedMetadata", "[reflection][Interop]")
   INFO("construct");
   REQUIRE(anyObj.has_value());
   auto result =
-      mAdd->InvokeAs<int>(const_cast<void *>(anyObj->raw_data()), 2, 3);
+      mAdd->InvokeAs<int>(const_cast<void *>(anyObj->Data()), 2, 3);
   INFO("invoke add");
   REQUIRE(result.has_value());
   CHECK(*result == 5);
@@ -194,7 +194,7 @@ TEST_CASE("LoadsPluginsAndExecutesMergedMetadata", "[reflection][Interop]")
   INFO("construct");
   REQUIRE(anyObj2.has_value());
   auto result2 =
-      mMul->InvokeAs<int>(const_cast<void *>(anyObj2->raw_data()), 2, 3);
+      mMul->InvokeAs<int>(const_cast<void *>(anyObj2->Data()), 2, 3);
   INFO("invoke mul");
   REQUIRE(result2.has_value());
   CHECK(*result2 == 6);

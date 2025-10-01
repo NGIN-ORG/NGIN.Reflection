@@ -3,11 +3,14 @@
 #pragma once
 
 #include <NGIN/Primitives.hpp>
+#include <NGIN/Utilities/Any.hpp>
 #include <string_view>
 #include <expected>
 
 namespace NGIN::Reflection
 {
+
+  using Any = NGIN::Utilities::Any<>;
 
   enum class ErrorCode : unsigned
   {

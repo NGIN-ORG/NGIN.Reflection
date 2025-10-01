@@ -27,8 +27,8 @@ struct User {
 auto t = NGIN::Reflection::TypeOf<User>();
 auto f = t.GetField("id").value();
 User u{};
-(void)f.SetAny(&u, NGIN::Reflection::Any::make(42));
-auto v = f.GetAny(&u).As<int>(); // 42
+(void)f.SetAny(&u, NGIN::Reflection::Any{42});
+auto v = f.GetAny(&u).Cast<int>(); // 42
 ```
 
 ### Methods (overloads, conversions, and typed invocations)
@@ -49,9 +49,9 @@ using namespace NGIN::Reflection;
 auto tm = TypeOf<Math>(); Math m{};
 
 // Resolve by runtime args (promotions/conversions applied)
-Any args[2] = { Any::make(3), Any::make(2.5) };
+Any args[2] = { Any{3}, Any{2.5} };
 auto mr = tm.ResolveMethod("mul", args, 2).value();
-auto out = mr.invoke(&m, args, 2).value().As<double>();
+auto out = mr.invoke(&m, args, 2).value().Cast<double>();
 
 // Resolve by compile-time signature (exact match)
 auto mi = tm.ResolveMethod<int,int,int>("mul").value();
@@ -140,9 +140,9 @@ See docs/Architecture.md for full details.
 ## Data Structures (NGIN‑first)
 
 - `Vector<T>`: `NGIN::Containers::Vector` for tables and temporary builders.
-- `StringInterner`: per‑registry pool storing unique `std::string_view` backed by one big `Vector<char>`; index‑based.
+- `StringInterner`: registry-local instance of `NGIN::Utilities::StringInterner<>` (from NGIN.Base) storing unique `std::string_view` handles.
 - `HashIndex`: `FlatHashMap` from interned name id → index for O(1) average lookup.
-- `Any`: reflection‑local, SBO 32 bytes + destructor and copy/move thunks; heap fallback via `NGIN::Memory::SystemAllocator` for larger types.
+- `Any`: alias of `NGIN::Utilities::Any<>` (from NGIN.Base); 32B SBO + allocator-configurable, with `Cast`, `GetTypeId`, and `Data` used throughout the registry.
 
 ## Builder DSL → Descriptor Blob
 

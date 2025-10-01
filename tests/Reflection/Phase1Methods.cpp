@@ -33,9 +33,9 @@ TEST_CASE("MethodInvocationReturnsExpectedResult",
   CHECK(m.GetParameterCount() == NGIN::UIntSize{1});
 
   Calc c{2};
-  Any args[1] = {Any::make(5)};
+  Any args[1] = {Any{5}};
   auto out = m.Invoke(&c, args, 1).value();
-  CHECK(out.As<int>() == 7);
+  CHECK(out.Cast<int>() == 7);
 }
 
 TEST_CASE("FieldMutatorsEnforceTypes", "[reflection][Phase1Methods]") {
@@ -49,12 +49,12 @@ TEST_CASE("FieldMutatorsEnforceTypes", "[reflection][Phase1Methods]") {
   auto f = fexp.value();
   CHECK(c.base == 1);
 
-  CHECK(f.SetAny(&c, Any::make(10)).has_value());
+  CHECK(f.SetAny(&c, Any{10}).has_value());
   CHECK(c.base == 10);
 
   auto av = f.GetAny(&c);
-  CHECK(av.As<int>() == 10);
-  CHECK_FALSE(f.SetAny(&c, Any::make(3.14f)).has_value());
+  CHECK(av.Cast<int>() == 10);
+  CHECK_FALSE(f.SetAny(&c, Any{3.14f}).has_value());
 }
 
 TEST_CASE("FieldAndMethodAttributesAreExposed",

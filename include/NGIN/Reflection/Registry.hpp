@@ -7,7 +7,7 @@
 #include <NGIN/Containers/HashMap.hpp>
 #include <NGIN/Meta/TypeName.hpp>
 #include <NGIN/Hashing/FNV.hpp>
-#include <NGIN/Reflection/Any.hpp>
+#include <NGIN/Utilities/StringInterner.hpp>
 
 #include <string_view>
 #include <expected>
@@ -53,40 +53,10 @@ namespace NGIN::Reflection
   class Method;
   class Constructor;
   class AttributeView;
-  class Any;
 
   namespace detail
   {
-    struct StringInterner
-    {
-      StringInterner() = default;
-      ~StringInterner();
-
-      NameId InsertOrGet(std::string_view s) noexcept;
-      bool FindId(std::string_view s, NameId &out) const noexcept;
-      std::string_view View(NameId id) const noexcept;
-      std::string_view InternView(std::string_view s) noexcept;
-
-    private:
-      struct Page
-      {
-        char *data{nullptr};
-        NGIN::UInt32 used{0};
-        NGIN::UInt32 capacity{0};
-      };
-      struct Entry
-      {
-        NGIN::UInt32 page{0};
-        NGIN::UInt32 offset{0};
-        NGIN::UInt32 length{0};
-        NGIN::UInt64 hash{0};
-      };
-      NGIN::Containers::Vector<Page> pages;
-      NGIN::Containers::Vector<Entry> entries;
-      NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::Containers::Vector<NGIN::UInt32>> buckets;
-
-      void *AllocateBytes(NGIN::UInt32 n) noexcept;
-    };
+    using StringInterner = NGIN::Utilities::StringInterner<>;
 
     // Convenience wrappers using the global registry interner
     NameId InternNameId(std::string_view s) noexcept;
@@ -111,8 +81,8 @@ namespace NGIN::Reflection
       NGIN::UIntSize sizeBytes{0};
       void *(*GetMut)(void *){nullptr};
       const void *(*GetConst)(const void *){nullptr};
-      class Any (*load)(const void *){nullptr};
-      std::expected<void, Error> (*store)(void *, const class Any &){nullptr};
+      Any (*load)(const void *){nullptr};
+      std::expected<void, Error> (*store)(void *, const Any &){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -122,14 +92,14 @@ namespace NGIN::Reflection
       NameId nameId{static_cast<NameId>(-1)};
       NGIN::UInt64 returnTypeId;
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
-      std::expected<class Any, Error> (*Invoke)(void *, const class Any *, NGIN::UIntSize){nullptr};
+      std::expected<Any, Error> (*Invoke)(void *, const Any *, NGIN::UIntSize){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
     struct CtorRuntimeDesc
     {
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
-      std::expected<class Any, Error> (*construct)(const class Any *, NGIN::UIntSize){nullptr};
+      std::expected<Any, Error> (*construct)(const Any *, NGIN::UIntSize){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -217,20 +187,20 @@ namespace NGIN::Reflection
       using C = MemberClassT<MemberPtr>;
       using M = MemberTypeT<MemberPtr>;
       auto *c = static_cast<const C *>(obj);
-      return Any::make(static_cast<const M &>(c->*MemberPtr));
+      return Any{static_cast<const M &>(c->*MemberPtr)};
     }
 
     template <auto MemberPtr>
-    static std::expected<void, Error> FieldStore(void *obj, const class Any &value)
+    static std::expected<void, Error> FieldStore(void *obj, const Any &value)
     {
       using C = MemberClassT<MemberPtr>;
       using M = MemberTypeT<MemberPtr>;
       const auto sv = NGIN::Meta::TypeName<M>::qualifiedName;
       const auto tid = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-      if (value.type_id() != tid)
+      if (value.GetTypeId() != tid)
         return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
       auto *c = static_cast<C *>(obj);
-      (c->*MemberPtr) = value.As<M>();
+      (c->*MemberPtr) = value.Cast<M>();
       return {};
     }
 
@@ -257,11 +227,11 @@ namespace NGIN::Reflection
       if constexpr (std::is_default_constructible_v<U>)
       {
         CtorRuntimeDesc c{};
-        c.construct = [](const class Any *, NGIN::UIntSize cnt) -> std::expected<class Any, Error>
+        c.construct = [](const Any *, NGIN::UIntSize cnt) -> std::expected<Any, Error>
         {
           if (cnt != 0)
             return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-          return Any::make(U{});
+          return Any{U{}};
         };
         rec.constructors.PushBack(std::move(c));
       }
@@ -320,8 +290,8 @@ namespace NGIN::Reflection
     [[nodiscard]] const void *GetConst(const void *obj) const;
 
     // Any helpers
-    [[nodiscard]] class Any GetAny(const void *obj) const;
-    [[nodiscard]] std::expected<void, Error> SetAny(void *obj, const class Any &value) const;
+    [[nodiscard]] Any GetAny(const void *obj) const;
+    [[nodiscard]] std::expected<void, Error> SetAny(void *obj, const Any &value) const;
 
     // Attributes
     [[nodiscard]] NGIN::UIntSize attribute_count() const;
@@ -343,27 +313,27 @@ namespace NGIN::Reflection
     [[nodiscard]] std::string_view GetName() const;
     [[nodiscard]] NGIN::UIntSize GetParameterCount() const;
     [[nodiscard]] NGIN::UInt64 GetTypeId() const;
-    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, const class Any *args, NGIN::UIntSize count) const;
-    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, std::span<const class Any> args) const
+    [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, const Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, std::span<const Any> args) const
     {
       return Invoke(obj, args.data(), static_cast<NGIN::UIntSize>(args.size()));
     }
     template <NGIN::UIntSize N>
-    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, const class Any (&args)[N], NGIN::UIntSize count) const
+    [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, const Any (&args)[N], NGIN::UIntSize count) const
     {
-      const class Any *p = args;
+      const Any *p = args;
       return Invoke(obj, p, count);
     }
     template <NGIN::UIntSize N>
-    [[nodiscard]] std::expected<class Any, Error> Invoke(void *obj, class Any (&args)[N], NGIN::UIntSize count) const
+    [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, Any (&args)[N], NGIN::UIntSize count) const
     {
-      const class Any *p = args;
+      const Any *p = args;
       return Invoke(obj, p, count);
     }
     template <class R, class... A>
     [[nodiscard]] std::expected<R, Error> InvokeAs(void *obj, A &&...a) const
     {
-      std::array<class Any, sizeof...(A)> tmp{Any::make(std::forward<A>(a))...};
+      std::array<Any, sizeof...(A)> tmp{Any{std::forward<A>(a)}...};
       auto r = Invoke(obj, tmp.data(), static_cast<NGIN::UIntSize>(tmp.size()));
       if (!r.has_value())
         return std::unexpected(r.error());
@@ -373,7 +343,7 @@ namespace NGIN::Reflection
       }
       else
       {
-        return r->template As<R>();
+        return r->template Cast<R>();
       }
     }
 
@@ -419,8 +389,8 @@ namespace NGIN::Reflection
     [[nodiscard]] NGIN::UIntSize MethodCount() const;
     [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const;
     [[nodiscard]] std::expected<Method, Error> GetMethod(std::string_view name) const;
-    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, const class Any *args, NGIN::UIntSize count) const;
-    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, std::span<const class Any> args) const
+    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, const Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, std::span<const Any> args) const
     {
       return ResolveMethod(name, args.data(), static_cast<NGIN::UIntSize>(args.size()));
     }
@@ -480,12 +450,12 @@ namespace NGIN::Reflection
 
     // Directly resolve and Invoke by compile-time signature
     template <class R = void, class... A>
-    [[nodiscard]] std::expected<class Any, Error> Invoke(std::string_view name, void *obj, A &&...a) const
+    [[nodiscard]] std::expected<Any, Error> Invoke(std::string_view name, void *obj, A &&...a) const
     {
       auto m = ResolveMethod<R, A...>(name);
       if (!m.has_value())
         return std::unexpected(m.error());
-      std::array<class Any, sizeof...(A)> tmp{Any::make(std::forward<A>(a))...};
+      std::array<Any, sizeof...(A)> tmp{Any{std::forward<A>(a)}...};
       return m->Invoke(obj, tmp.data(), static_cast<NGIN::UIntSize>(tmp.size()));
     }
 
@@ -500,14 +470,14 @@ namespace NGIN::Reflection
 
     // Constructors
     [[nodiscard]] NGIN::UIntSize ConstructorCount() const;
-    [[nodiscard]] std::expected<class Any, Error> Construct(const class Any *args, NGIN::UIntSize count) const;
-    [[nodiscard]] std::expected<class Any, Error> Construct(std::span<const class Any> args) const
+    [[nodiscard]] std::expected<Any, Error> Construct(const Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<Any, Error> Construct(std::span<const Any> args) const
     {
       return Construct(args.data(), static_cast<NGIN::UIntSize>(args.size()));
     }
-    [[nodiscard]] std::expected<class Any, Error> DefaultConstruct() const
+    [[nodiscard]] std::expected<Any, Error> DefaultConstruct() const
     {
-      const class Any *none = nullptr;
+      const Any *none = nullptr;
       return Construct(none, 0);
     }
 

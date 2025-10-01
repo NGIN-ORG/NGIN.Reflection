@@ -27,10 +27,10 @@ TEST_CASE("ResolveSelectsOverloadBySignature",
   auto m1 = t.ResolveMethod<int, int, int>("mul").value();
   auto m2 = t.ResolveMethod<float, float, float>("mul").value();
   M obj{};
-  Any ii[2] = {Any::make(3), Any::make(4)};
-  Any ff[2] = {Any::make(2.0f), Any::make(5.0f)};
-  CHECK(m1.Invoke(&obj, ii, 2).value().As<int>() == 12);
-  CHECK(m2.Invoke(&obj, ff, 2).value().As<float>() == 10.0f);
+  Any ii[2] = {Any{3}, Any{4}};
+  Any ff[2] = {Any{2.0f}, Any{5.0f}};
+  CHECK(m1.Invoke(&obj, ii, 2).value().Cast<int>() == 12);
+  CHECK(m2.Invoke(&obj, ff, 2).value().Cast<float>() == 10.0f);
 }
 
 TEST_CASE("ResolveSupportsVoidReturns", "[reflection][TypedResolve]") {
@@ -40,7 +40,7 @@ TEST_CASE("ResolveSupportsVoidReturns", "[reflection][TypedResolve]") {
   auto t = TypeOf<M>();
   auto m = t.ResolveMethod<void, int>("ping").value();
   M obj{};
-  Any arg = Any::make(1);
+  Any arg{1};
   auto out = m.Invoke(&obj, &arg, 1).value();
-  CHECK(out.is_void());
+  CHECK_FALSE(out.HasValue());
 }

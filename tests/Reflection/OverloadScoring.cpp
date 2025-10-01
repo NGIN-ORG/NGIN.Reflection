@@ -41,10 +41,10 @@ TEST_CASE("ExactMatchesOutrankConversions",
 
   auto t = TypeOf<S>();
   S s{};
-  Any arg = Any::make(3.14);
+  Any arg{3.14};
   auto m = t.ResolveMethod("f", &arg, 1).value();
   auto out = m.Invoke(&s, &arg, 1).value();
-  CHECK(out.As<double>() == Catch::Approx(2.0));
+  CHECK(out.Cast<double>() == Catch::Approx(2.0));
 }
 
 TEST_CASE("PromotionsOutrankConversions",
@@ -54,10 +54,10 @@ TEST_CASE("PromotionsOutrankConversions",
 
   auto t = TypeOf<S2>();
   S2 s{};
-  Any arg = Any::make(2.0f);
+  Any arg{2.0f};
   auto m = t.ResolveMethod("g", &arg, 1).value();
   auto out = m.Invoke(&s, &arg, 1).value();
-  CHECK(out.As<double>() == Catch::Approx(2.0));
+  CHECK(out.Cast<double>() == Catch::Approx(2.0));
 }
 
 TEST_CASE("NarrowingConversionsArePenalized",
@@ -67,10 +67,10 @@ TEST_CASE("NarrowingConversionsArePenalized",
 
   auto t = TypeOf<S>();
   S s{};
-  Any arg = Any::make(3.14);
+  Any arg{3.14};
   auto m = t.ResolveMethod("f", &arg, 1).value();
   auto out = m.Invoke(&s, &arg, 1).value();
-  CHECK(out.As<double>() == Catch::Approx(2.0));
+  CHECK(out.Cast<double>() == Catch::Approx(2.0));
 }
 
 TEST_CASE("UnsignedOverloadsHandleUnsignedInputs",
@@ -80,7 +80,7 @@ TEST_CASE("UnsignedOverloadsHandleUnsignedInputs",
 
   auto t = TypeOf<S>();
   S s{};
-  Any arg = Any::make(42u);
+  Any arg{42u};
   auto m = t.ResolveMethod("f", &arg, 1).value();
   auto out = m.Invoke(&s, &arg, 1);
   CHECK(out.has_value());

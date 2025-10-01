@@ -1,9 +1,6 @@
 #include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/NameUtils.hpp>
-#include <NGIN/Reflection/Any.hpp>
 #include <cstring>
-#include <memory>
-#include <NGIN/Memory/SystemAllocator.hpp>
 
 namespace NGIN::Reflection::detail
 {
@@ -11,147 +8,40 @@ namespace NGIN::Reflection::detail
   static Registry g_registry{};
 
   Registry &GetRegistry() noexcept { return g_registry; }
-
-  // Minimal string interner (prototype): stores unique strings with stable lifetime
-  // String interner implementation
-  StringInterner::~StringInterner()
+  namespace
   {
-    NGIN::Memory::SystemAllocator alloc{};
-    for (auto &p : pages)
-    {
-      if (p.data)
-        alloc.Deallocate(p.data, p.capacity, alignof(char));
-      p.data = nullptr;
-      p.used = p.capacity = 0;
-    }
+    constexpr NameId InvalidNameId = static_cast<NameId>(StringInterner::INVALID_ID);
   }
 
-  void *StringInterner::AllocateBytes(NGIN::UInt32 n) noexcept
-  {
-    // ensure a page with at least n bytes free
-    if (!pages.Size() || (pages[pages.Size() - 1].capacity - pages[pages.Size() - 1].used) < n)
-    {
-      // allocate new page: geometric growth, minimum 4KB
-      NGIN::UInt32 need = n;
-      NGIN::UInt32 cap = 4096;
-      if (pages.Size())
-      {
-        cap = pages[pages.Size() - 1].capacity * 2;
-        if (cap < 4096)
-          cap = 4096;
-      }
-      while (cap < need)
-        cap *= 2u;
-      NGIN::Memory::SystemAllocator alloc{};
-      char *mem = static_cast<char *>(alloc.Allocate(cap, alignof(char)));
-      if (!mem)
-        return nullptr;
-      Page pg{};
-      pg.data = mem;
-      pg.used = 0;
-      pg.capacity = cap;
-      pages.PushBack(std::move(pg));
-    }
-    auto &p = pages[pages.Size() - 1];
-    void *out = p.data + p.used;
-    p.used += n;
-    return out;
-  }
-
-  NameId StringInterner::InsertOrGet(std::string_view s) noexcept
-  {
-    const auto h = NGIN::Hashing::FNV1a64(s.data(), s.size());
-    if (auto bucket = buckets.GetPtr(h))
-    {
-      for (NGIN::UIntSize i = 0; i < bucket->Size(); ++i)
-      {
-        auto idx = (*bucket)[i];
-        const auto &e = entries[idx];
-        if (e.length == s.size() && std::memcmp(pages[e.page].data + e.offset, s.data(), s.size()) == 0)
-          return static_cast<NameId>(idx);
-      }
-    }
-    // allocate bytes + NUL
-    const NGIN::UInt32 len = static_cast<NGIN::UInt32>(s.size());
-    char *dst = static_cast<char *>(AllocateBytes(len + 1));
-    if (!dst)
-      return static_cast<NameId>(-1);
-    std::memcpy(dst, s.data(), len);
-    dst[len] = '\0';
-    // record entry
-    Entry e{};
-    e.page = static_cast<NGIN::UInt32>(pages.Size() - 1);
-    e.offset = pages[e.page].used - (len + 1);
-    e.length = len;
-    e.hash = h;
-    const auto idx = static_cast<NGIN::UInt32>(entries.Size());
-    entries.PushBack(e);
-    // update bucket
-    if (auto bucket = buckets.GetPtr(h))
-    {
-      bucket->PushBack(idx);
-    }
-    else
-    {
-      NGIN::Containers::Vector<NGIN::UInt32> v;
-      v.PushBack(idx);
-      buckets.Insert(h, std::move(v));
-    }
-    return static_cast<NameId>(idx);
-  }
-
-  bool StringInterner::FindId(std::string_view s, NameId &out) const noexcept
-  {
-    const auto h = NGIN::Hashing::FNV1a64(s.data(), s.size());
-    if (auto bucket = buckets.GetPtr(h))
-    {
-      for (NGIN::UIntSize i = 0; i < bucket->Size(); ++i)
-      {
-        auto idx = (*bucket)[i];
-        const auto &e = entries[idx];
-        if (e.length == s.size() && std::memcmp(pages[e.page].data + e.offset, s.data(), s.size()) == 0)
-        {
-          out = static_cast<NameId>(idx);
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  std::string_view StringInterner::View(NameId id) const noexcept
-  {
-    const auto idx = static_cast<NGIN::UInt32>(id);
-    const auto &e = entries[idx];
-    return std::string_view{pages[e.page].data + e.offset, e.length};
-  }
-
-  std::string_view StringInterner::InternView(std::string_view s) noexcept
-  {
-    auto id = InsertOrGet(s);
-    return View(id);
-  }
-
-  // Convenience wrappers
   NameId InternNameId(std::string_view s) noexcept
   {
     auto &reg = GetRegistry();
-    return reg.names.InsertOrGet(s);
+    const auto id = reg.names.InsertOrGet(s);
+    if (id == StringInterner::INVALID_ID)
+      return InvalidNameId;
+    return static_cast<NameId>(id);
   }
+
   bool FindNameId(std::string_view s, NameId &out) noexcept
   {
     auto &reg = GetRegistry();
-    return reg.names.FindId(s, out);
+    StringInterner::IdType id{};
+    if (!reg.names.TryGetId(s, id))
+      return false;
+    out = static_cast<NameId>(id);
+    return true;
   }
+
   std::string_view NameFromId(NameId id) noexcept
   {
     auto &reg = GetRegistry();
-    return reg.names.View(id);
+    return reg.names.View(static_cast<StringInterner::IdType>(id));
   }
+
   std::string_view InternName(std::string_view s) noexcept
   {
     auto &reg = GetRegistry();
-    return reg.names.InternView(s);
+    return reg.names.Intern(s);
   }
 
 } // namespace NGIN::Reflection::detail
@@ -241,7 +131,7 @@ namespace NGIN::Reflection
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
     if (f.load)
       return f.load(obj);
-    return Any::make_void();
+    return Any::MakeVoid();
   }
 
   std::expected<void, Error> Field::SetAny(void *obj, const Any &value) const
@@ -250,16 +140,16 @@ namespace NGIN::Reflection
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
     if (f.store)
       return f.store(obj, value);
-    if (value.type_id() != f.typeId)
+    if (value.GetTypeId() != f.typeId)
     {
       return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
     }
     void *dst = f.GetMut(obj);
-    if (value.size() != f.sizeBytes)
+    if (value.Size() != f.sizeBytes)
     {
       return std::unexpected(Error{ErrorCode::InvalidArgument, "size mismatch"});
     }
-    std::memcpy(dst, value.raw_data(), f.sizeBytes);
+    std::memcpy(dst, value.Data(), f.sizeBytes);
     return {};
   }
 
@@ -305,7 +195,7 @@ namespace NGIN::Reflection
     return reg.types[m_typeIndex].methods[m_methodIndex].returnTypeId;
   }
 
-  std::expected<class Any, Error> Method::Invoke(void *obj, const class Any *args, NGIN::UIntSize count) const
+  std::expected<Any, Error> Method::Invoke(void *obj, const Any *args, NGIN::UIntSize count) const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_typeIndex].methods[m_methodIndex].Invoke(obj, args, count);
@@ -456,7 +346,7 @@ namespace NGIN::Reflection
     return {3, 0, 1};
   }
 
-  std::expected<Method, Error> Type::ResolveMethod(std::string_view name, const class Any *args, NGIN::UIntSize count) const
+  std::expected<Method, Error> Type::ResolveMethod(std::string_view name, const Any *args, NGIN::UIntSize count) const
   {
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
@@ -488,7 +378,7 @@ namespace NGIN::Reflection
       for (NGIN::UIntSize i = 0; i < count; ++i)
       {
         auto want = m.paramTypeIds[i];
-        auto have = args[i].type_id();
+        auto have = args[i].GetTypeId();
         auto d = ParamScore(have, want);
         if (d.cost >= 1000)
         {
@@ -521,7 +411,7 @@ namespace NGIN::Reflection
     return reg.types[m_h.index].constructors.Size();
   }
 
-  std::expected<class Any, Error> Type::Construct(const class Any *args, NGIN::UIntSize count) const
+  std::expected<Any, Error> Type::Construct(const Any *args, NGIN::UIntSize count) const
   {
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
@@ -559,7 +449,7 @@ namespace NGIN::Reflection
       for (NGIN::UIntSize k = 0; k < count; ++k)
       {
         auto want = c.paramTypeIds[k];
-        auto have = args[k].type_id();
+        auto have = args[k].GetTypeId();
         auto d = ParamScore(have, want);
         if (d.cost >= 1000)
         {

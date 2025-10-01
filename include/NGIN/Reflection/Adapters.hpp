@@ -2,7 +2,7 @@
 #pragma once
 
 #include <NGIN/Primitives.hpp>
-#include <NGIN/Reflection/Any.hpp>
+#include <NGIN/Utilities/Any.hpp>
 #include <NGIN/Containers/Vector.hpp>
 #include <NGIN/Containers/HashMap.hpp>
 
@@ -17,6 +17,8 @@
 #include <NGIN/Reflection/Convert.hpp>
 
 namespace NGIN::Reflection::Adapters {
+
+using Any = NGIN::Utilities::Any<>;
 
 // Sequence detection (std::vector, NGIN::Containers::Vector)
 template<class T>
@@ -45,7 +47,7 @@ public:
       return 0;
     }
   }
-  Any element(NGIN::UIntSize i) const { return Any::make((*m_seq)[static_cast<std::size_t>(i)]); }
+  Any element(NGIN::UIntSize i) const { return Any{(*m_seq)[static_cast<std::size_t>(i)]}; }
 private:
   Seq* m_seq{};
 };
@@ -69,7 +71,7 @@ public:
   explicit TupleAdapter(Tup& t) : m_t(&t) {}
   static constexpr NGIN::UIntSize size() { return static_cast<NGIN::UIntSize>(std::tuple_size<Tup>::value); }
   template<std::size_t I>
-  Any get() const { return Any::make(std::get<I>(*m_t)); }
+  Any get() const { return Any{std::get<I>(*m_t)}; }
 private:
   Tup* m_t{};
 };
@@ -93,8 +95,8 @@ public:
   explicit VariantAdapter(Var& v) : m_v(&v) {}
   NGIN::UIntSize index() const { return static_cast<NGIN::UIntSize>(m_v->index()); }
   Any get() const {
-    Any out = Any::make_void();
-    std::visit([&](auto&& val){ out = Any::make(val); }, *m_v);
+    Any out = Any::MakeVoid();
+    std::visit([&](auto&& val){ out = Any{val}; }, *m_v);
     return out;
   }
 private:
@@ -120,7 +122,7 @@ public:
   using Elem = typename Opt::value_type;
   explicit OptionalAdapter(Opt& o) : m_opt(&o) {}
   bool has_value() const { return m_opt->has_value(); }
-  Any value() const { return m_opt->has_value() ? Any::make(m_opt->value()) : Any::make_void(); }
+  Any value() const { return m_opt->has_value() ? Any{m_opt->value()} : Any::MakeVoid(); }
 private:
   Opt* m_opt{};
 };
@@ -155,10 +157,10 @@ public:
   }
   Any find_value(const Any& k) const {
     auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
-    if (!key) return Any::make_void();
+    if (!key) return Any::MakeVoid();
     auto it = m_map->find(key.value());
-    if (it == m_map->end()) return Any::make_void();
-    return Any::make(it->second);
+    if (it == m_map->end()) return Any::MakeVoid();
+    return Any{it->second};
   }
 private:
   Map* m_map{};
@@ -184,9 +186,9 @@ public:
   }
   Any find_value(const Any& k) const {
     auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
-    if (!key) return Any::make_void();
-    if (auto* p = m_map->GetPtr(key.value())) return Any::make(*p);
-    return Any::make_void();
+    if (!key) return Any::MakeVoid();
+    if (auto* p = m_map->GetPtr(key.value())) return Any{*p};
+    return Any::MakeVoid();
   }
 private:
   NGIN::Containers::FlatHashMap<K, V>* m_map{};
@@ -207,10 +209,10 @@ public:
     else return false;
   }
   Any value() const {
-    if (!has_value()) return Any::make_void();
-    if constexpr (requires(const Opt& o){ o.value(); }) return Any::make(m_opt->value());
-    else if constexpr (requires(const Opt& o){ o.Value(); }) return Any::make(m_opt->Value());
-    else return Any::make_void();
+    if (!has_value()) return Any::MakeVoid();
+    if constexpr (requires(const Opt& o){ o.value(); }) return Any{m_opt->value()};
+    else if constexpr (requires(const Opt& o){ o.Value(); }) return Any{m_opt->Value()};
+    else return Any::MakeVoid();
   }
 private:
   Opt* m_opt{};

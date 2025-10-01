@@ -15,7 +15,7 @@ TEST_CASE("FlatHashMapAdapterExposesContainerOperations",
 
   auto a = MakeFlatHashMapAdapter(m);
   CHECK(a.size() == NGIN::UIntSize{2});
-  CHECK(a.contains_key(Any::make(1)));
-  CHECK(a.find_value(Any::make(2)).As<int>() == 20);
-  CHECK_FALSE(a.contains_key(Any::make(3)));
+  CHECK(a.contains_key(Any{1}));
+  CHECK(a.find_value(Any{2}).Cast<int>() == 20);
+  CHECK_FALSE(a.contains_key(Any{3}));
 }

@@ -14,13 +14,13 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 
 - Library target `NGIN::Reflection` (shared/static via `BUILD_SHARED_LIBS`).
 - Public headers: descriptors, handles, Builder DSL, ADL hooks.
-- Compiled core: registry, Any, optional ABI export stub (gated by `NGIN_REFLECTION_ENABLE_ABI`).
+- Compiled core: registry, direct integration with shared utilities (e.g., `NGIN::Utilities::Any<>`), optional ABI export stub (gated by `NGIN_REFLECTION_ENABLE_ABI`).
 
 ## Dependencies
 
 - `NGIN::Meta::TypeName` for canonical type names and identity.
 - `NGIN::Containers::{Vector,FlatHashMap}` for tables and indexes.
-- `NGIN::Memory::SystemAllocator` for Any heap fallback.
+- `NGIN::Utilities::{Any,StringInterner}` (via NGIN.Base) for runtime boxing and interned names, along with `NGIN::Memory::SystemAllocator` as their default allocator.
 
 ## Core Model
 
@@ -68,8 +68,8 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 
 ## Any
 
-- 32B small‑buffer optimization; heap fallback via `SystemAllocator`.
-- Tracks type_id and size; supports copy/move and raw data access.
+- Uses `NGIN::Utilities::Any<>` from NGIN.Base (32B small-buffer + `SystemAllocator` fallback).
+- Reflection code relies on `Cast`, `TryCast`, `GetTypeId`, `Size`, and `Data` provided by the shared implementation.
 
 ## Adapters
 
@@ -115,4 +115,3 @@ Phase 6 — Documentation & Samples
 - v0.3: Cross‑DLL merge + handles, loader helpers, diagnostics.
 - v0.4: Scanner/codegen preview, warning‑free.
 - v1.0: Stabilized API/ABI, documented, benchmarked.
-

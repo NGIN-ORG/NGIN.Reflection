@@ -6,7 +6,6 @@
 #include <NGIN/Reflection/NameUtils.hpp>
 #include <NGIN/Hashing/FNV.hpp>
 #include <NGIN/Meta/TypeTraits.hpp>
-#include <NGIN/Reflection/Any.hpp>
 #include <NGIN/Reflection/Convert.hpp>
 #include <string_view>
 #include <tuple>
@@ -146,7 +145,7 @@ namespace NGIN::Reflection
       static constexpr NGIN::UIntSize Arity = sizeof...(A);
       using Args = std::tuple<A...>;
       template <auto MemFn>
-      static std::expected<class Any, Error> Invoke(void *obj, const class Any *args, NGIN::UIntSize count)
+      static std::expected<Any, Error> Invoke(void *obj, const Any *args, NGIN::UIntSize count)
       {
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
@@ -156,19 +155,19 @@ namespace NGIN::Reflection
 
     private:
       template <auto MemFn, std::size_t... I>
-      static std::expected<class Any, Error> call(C *c, const class Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> call(C *c, const Any *args, std::index_sequence<I...>)
       {
         if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
         {
           if constexpr (std::is_void_v<R>)
           {
             (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any::make_void();
+            return Any::MakeVoid();
           }
           else
           {
             auto r = (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any::make(std::move(r));
+            return Any{std::move(r)};
           }
         }
         return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
@@ -184,7 +183,7 @@ namespace NGIN::Reflection
       static constexpr NGIN::UIntSize Arity = sizeof...(A);
       using Args = std::tuple<A...>;
       template <auto MemFn>
-      static std::expected<class Any, Error> Invoke(void *obj, const class Any *args, NGIN::UIntSize count)
+      static std::expected<Any, Error> Invoke(void *obj, const Any *args, NGIN::UIntSize count)
       {
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
@@ -194,19 +193,19 @@ namespace NGIN::Reflection
 
     private:
       template <auto MemFn, std::size_t... I>
-      static std::expected<class Any, Error> call(const C *c, const class Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> call(const C *c, const Any *args, std::index_sequence<I...>)
       {
         if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
         {
           if constexpr (std::is_void_v<R>)
           {
             (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any::make_void();
+            return Any::MakeVoid();
           }
           else
           {
             auto r = (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any::make(std::move(r));
+            return Any{std::move(r)};
           }
         }
         return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
@@ -274,23 +273,23 @@ namespace NGIN::Reflection
       using Tuple = std::tuple<A...>;
       detail::push_ctor_param_ids<Tuple>(c.paramTypeIds, std::make_index_sequence<sizeof...(A)>{});
     }
-    c.construct = [](const class Any *args, NGIN::UIntSize count) -> std::expected<class Any, Error>
+    c.construct = [](const Any *args, NGIN::UIntSize count) -> std::expected<Any, Error>
     {
       if (count != sizeof...(A))
         return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
       // Convert then construct
-      auto convert_and_make = [&](auto &&...unpacked) -> std::expected<class Any, Error>
+      auto convert_and_make = [&](auto &&...unpacked) -> std::expected<Any, Error>
       {
         if (((detail::ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[unpacked]).has_value()) && ...))
         {
           if constexpr (sizeof...(A) == 0)
           {
-            return Any::make(T{});
+            return Any{T{}};
           }
           else
           {
             T obj{detail::ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[unpacked]).value()...};
-            return Any::make(std::move(obj));
+            return Any{std::move(obj)};
           }
         }
         return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
