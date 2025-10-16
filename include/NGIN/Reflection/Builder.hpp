@@ -47,10 +47,7 @@ namespace NGIN::Reflection
         f.nameId = id;
         f.name = detail::NameFromId(id);
       }
-      {
-        auto sv = NGIN::Meta::TypeName<MemberT>::qualifiedName;
-        f.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-      }
+      f.typeId = detail::TypeIdOf<MemberT>();
       f.sizeBytes = sizeof(MemberT);
       f.GetMut = &detail::FieldGetterMut<MemberPtr>;
       f.GetConst = &detail::FieldGetterConst<MemberPtr>;
@@ -120,8 +117,7 @@ namespace NGIN::Reflection
     inline NGIN::UInt64 param_type_id()
     {
       using Arg = std::remove_cv_t<std::remove_reference_t<std::tuple_element_t<I, Tuple>>>;
-      auto psv = NGIN::Meta::TypeName<Arg>::qualifiedName;
-      return NGIN::Hashing::FNV1a64(psv.data(), psv.size());
+      return detail::TypeIdOf<Arg>();
     }
 
     template <class Tuple, std::size_t... I>
@@ -231,8 +227,7 @@ namespace NGIN::Reflection
     }
     else
     {
-      auto rsv = NGIN::Meta::TypeName<typename Traits::Ret>::qualifiedName;
-      m.returnTypeId = NGIN::Hashing::FNV1a64(rsv.data(), rsv.size());
+      m.returnTypeId = detail::TypeIdOf<typename Traits::Ret>();
     }
     // Param type ids
     constexpr auto N = Traits::Arity;

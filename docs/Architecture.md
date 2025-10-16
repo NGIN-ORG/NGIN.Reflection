@@ -30,9 +30,23 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 
 ## ABI Strategy (Phase 3)
 
-- Versioned C entrypoint (name: `NGINReflectionExportV1`) returning registry header and blob pointer.
-- Enabled via `NGIN_REFLECTION_ENABLE_ABI` (header declaration and compiled stub when ON).
-- Host merges modules by `TypeId`, deduplicating and fixing indices.
+- Versioned C entrypoint (`NGINReflectionExportV1`) publishes a compact, POD-only blob describing all reflected entities in the module.
+- Layout:
+  - `NGINReflectionHeaderV1` at the front of the blob encodes counts and byte offsets for every section, plus optional tables for method/ctor function pointers.
+  - Fixed-width arrays follow in this order: types → fields → methods → ctors → attributes → parameter type-ids → UTF‑8 string table → optional function-pointer tables.
+  - All cross-record references are indices into those arrays (no raw pointers); strings use `(offset,size)` pairs into the shared table.
+- Ownership & lifetime:
+  - The exporter allocates the blob once per process using `NGIN::Memory::SystemAllocator`; the memory stays owned by the exporting module.
+  - Consumers must treat the blob as read-only and either copy it or ensure they stop dereferencing once the module unloads.
+  - `CopyRegistryBlob` (see `NGIN::Reflection::RegistryBlobCopy`) clones the payload into host-owned memory and reconstitutes a stable `NGINReflectionRegistryV1` view via `AsRegistry()`.
+  - No free function is exposed in V1; destroying the module implicitly reclaims the blob.
+- Error handling:
+  - `MergeRegistryV1` rejects null payloads, version mismatches, and range violations with descriptive strings (`"null registry"`, `"unsupported version"`, `"corrupt offsets"`).
+  - Stats counters only advance on successful merges; callers should reset/inspect `MergeStats` per module load.
+  - Optional `MergeDiagnostics` captures per-type conflicts without affecting the default fast path.
+- Enabled via `NGIN_REFLECTION_ENABLE_ABI` (header declaration and compiled stub when ON); disabled builds define no-op tests and omit export symbols.
+- Host merges modules by `TypeId`, deduplicating duplicates, and layering alias lookups (including MSVC `class`/`struct` prefix stripping).
+- Post-merge verification runs opt-in via `VerifyProcessRegistry(options)`, ensuring overload tables remain consistent without imposing costs unless invoked.
 
 ## Type Identity
 
@@ -88,13 +102,31 @@ Phase 1 — MVP (implemented)
 
 - Tags, handles, Builder<T>, type lookup, fields, methods, Any, basic adapters, examples, benches.
 
-Phase 2 — Methods & Invocation (in progress)
+Phase 2 — Methods & Invocation (implemented)
 
-- Refined numeric scoring; `span<const Any>` overloads; typed resolve/invoke; constructors; expanded adapters.
+- Refined numeric scoring (promotion vs conversion tiers and signedness handling).
+- Added `span<const Any>` overloads, typed resolve/invoke helpers, and constructor descriptors.
+- Expanded adapters (map/optional/FlatHashMap) and constructor metadata coverage.
 
-Phase 3 — Cross‑DLL Registry
+Phase 3 — Cross‑DLL Registry (implemented)
 
-- ABI structs and export; merge/dedup; stable indices; interop tests.
+- ABI V1 export surface implemented (`NGINReflectionExportV1`) with contiguous blob writer.
+- Merge path ingests module payloads, dedupes by TypeId, and is validated via dual-plugin interop test plus targeted negative fixtures.
+- Optional diagnostics (`MergeDiagnostics`) and `VerifyProcessRegistry` helper provide opt-in conflict details and consistency checks.
+- Usage pattern:
+  ```cpp
+  MergeDiagnostics diag{};
+  const char *err = nullptr;
+  if (!MergeRegistryV1(mod, &stats, &err, &diag) && diag.HasConflicts()) {
+    for (const auto &conflict : diag.typeConflicts) {
+      // host logging or conflict resolution
+    }
+  }
+  VerifyRegistryOptions verify{};
+  verify.checkMethodOverloads = true;
+  (void)VerifyProcessRegistry(verify); // optional integrity check
+  ```
+- Future: consider host-side logging hooks and advanced validation toggles as requirements emerge.
 
 Phase 4 — Attributes & Codegen Hooks
 

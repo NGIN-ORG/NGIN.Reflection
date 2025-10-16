@@ -1,6 +1,10 @@
 #include <NGIN/Reflection/ABIMerge.hpp>
 #include <NGIN/Reflection/Registry.hpp>
 
+#include <array>
+#include <cinttypes>
+#include <cstdio>
+
 using namespace NGIN::Reflection;
 using namespace NGIN::Reflection::detail;
 
@@ -11,24 +15,53 @@ namespace
 
 bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
                                        MergeStats *stats,
-                                       const char **error) noexcept
+                                       const char **error,
+                                       MergeDiagnostics *diagnostics) noexcept
 {
+  if (error)
+    *error = nullptr;
+  if (diagnostics)
+    diagnostics->Reset();
+
+  static thread_local std::array<char, 160> errorBuf{};
+  auto setErrorLiteral = [&](const char *msg) noexcept {
+    if (error)
+      *error = msg;
+  };
+  auto setErrorFmt = [&](const char *fmt, auto... args) noexcept {
+    if (!error)
+      return;
+    int written = std::snprintf(errorBuf.data(), errorBuf.size(), fmt, args...);
+    if (written < 0)
+    {
+      errorBuf[0] = '\0';
+    }
+    else if (static_cast<std::size_t>(written) >= errorBuf.size())
+    {
+      errorBuf[errorBuf.size() - 1] = '\0';
+    }
+    *error = errorBuf.data();
+  };
+
   if (!module.header || !module.blob)
   {
-    if (error) *error = "null registry";
+    setErrorLiteral("null registry");
     return false;
   }
   const auto &h = *module.header;
   if (h.version != kV1)
   {
-    if (error) *error = "unsupported version";
+    setErrorLiteral("unsupported version");
     return false;
   }
   // Basic bounds sanity: sections within blob
-  auto within = [&](std::uint64_t off, std::uint64_t sz) -> bool {
+  auto within = [&](const char *label, std::uint64_t off, std::uint64_t sz) -> bool {
     if (off == 0 && sz == 0) return true; // allow empty
     const std::uint64_t end = off + sz;
-    return end <= module.blobSize && off <= module.blobSize;
+    if (end <= module.blobSize && off <= module.blobSize)
+      return true;
+    setErrorFmt("corrupt offsets: %s (off=%" PRIu64 ", size=%" PRIu64 ", blob=%" PRIu64 ")", label, off, sz, module.blobSize);
+    return false;
   };
   const std::uint64_t typesSize   = h.typeCount    * sizeof(NGINReflectionTypeV1);
   const std::uint64_t fieldsSize  = h.fieldCount   * sizeof(NGINReflectionFieldV1);
@@ -36,15 +69,14 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   const std::uint64_t ctorsSize   = h.ctorCount    * sizeof(NGINReflectionCtorV1);
   const std::uint64_t attrsSize   = h.attributeCount * sizeof(NGINReflectionAttrV1);
   const std::uint64_t paramsSize  = h.paramCount   * sizeof(std::uint64_t);
-  if (!within(h.typesOff, typesSize) ||
-      !within(h.fieldsOff, fieldsSize) ||
-      !within(h.methodsOff, methodsSize) ||
-      !within(h.ctorsOff, ctorsSize) ||
-      !within(h.attrsOff, attrsSize) ||
-      !within(h.paramsOff, paramsSize) ||
-      !within(h.stringsOff, h.stringBytes))
+  if (!within("types", h.typesOff, typesSize) ||
+      !within("fields", h.fieldsOff, fieldsSize) ||
+      !within("methods", h.methodsOff, methodsSize) ||
+      !within("constructors", h.ctorsOff, ctorsSize) ||
+      !within("attributes", h.attrsOff, attrsSize) ||
+      !within("params", h.paramsOff, paramsSize) ||
+      !within("strings", h.stringsOff, h.stringBytes))
   {
-    if (error) *error = "corrupt offsets";
     return false;
   }
 
@@ -85,14 +117,29 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
 
   std::uint32_t methodGlobalIdx = 0;
   std::uint32_t ctorGlobalIdx = 0;
+  bool conflictErrorSet = false;
 
   for (std::uint64_t i = 0; i < h.typeCount; ++i)
   {
     const auto &ti = types[i];
     const auto typeId = static_cast<NGIN::UInt64>(ti.typeId);
-    if (reg.byTypeId.GetPtr(typeId))
+    if (auto *existingIdx = reg.byTypeId.GetPtr(typeId))
     {
       ++conflicted;
+      if (!conflictErrorSet)
+      {
+        const auto name = view(ti.qualifiedName);
+        setErrorFmt("duplicate typeId %" PRIu64 " (%.*s)", typeId, static_cast<int>(name.size()), name.data());
+        conflictErrorSet = true;
+      }
+      if (diagnostics)
+      {
+        MergeConflict conflict{};
+        conflict.typeId = typeId;
+        conflict.existingName = reg.types[*existingIdx].qualifiedName;
+        conflict.incomingName = view(ti.qualifiedName);
+        diagnostics->typeConflicts.PushBack(std::move(conflict));
+      }
       continue;
     }
 
@@ -235,5 +282,64 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     stats->typesAdded += added;
     stats->typesConflicted += conflicted;
   }
+  return true;
+}
+
+bool NGIN::Reflection::VerifyProcessRegistry(const VerifyRegistryOptions &options,
+                                             const char **error) noexcept
+{
+  if (error)
+    *error = nullptr;
+  if (!options.checkFieldIndex && !options.checkMethodOverloads && !options.checkConstructorRanges)
+    return true;
+
+  static thread_local std::array<char, 160> errorBuf{};
+  auto setErrorFmt = [&](const char *fmt, auto... args) noexcept {
+    if (!error)
+      return;
+    int written = std::snprintf(errorBuf.data(), errorBuf.size(), fmt, args...);
+    if (written < 0)
+      errorBuf[0] = '\0';
+    else if (static_cast<std::size_t>(written) >= errorBuf.size())
+      errorBuf[errorBuf.size() - 1] = '\0';
+    *error = errorBuf.data();
+  };
+
+  const auto &reg = GetRegistry();
+  for (NGIN::UInt32 typeIdx = 0; typeIdx < reg.types.Size(); ++typeIdx)
+  {
+    const auto &rec = reg.types[typeIdx];
+    const auto name = rec.qualifiedName;
+
+    if (options.checkFieldIndex)
+    {
+      for (auto it = rec.fieldIndex.cbegin(); it != rec.fieldIndex.cend(); ++it)
+      {
+        auto kv = *it;
+        if (kv.value >= rec.fields.Size())
+        {
+          setErrorFmt("field index overflow for type %.*s", static_cast<int>(name.size()), name.data());
+          return false;
+        }
+      }
+    }
+
+    if (options.checkMethodOverloads)
+    {
+      for (auto it = rec.methodOverloads.cbegin(); it != rec.methodOverloads.cend(); ++it)
+      {
+        auto kv = *it;
+        for (NGIN::UInt32 idx : kv.value)
+        {
+          if (idx >= rec.methods.Size())
+          {
+            setErrorFmt("method overload index overflow for type %.*s", static_cast<int>(name.size()), name.data());
+            return false;
+          }
+        }
+      }
+    }
+  }
+
   return true;
 }

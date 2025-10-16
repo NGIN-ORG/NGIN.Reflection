@@ -129,8 +129,8 @@ Notes:
 | Phase | Status | Highlights |
 |---|---|---|
 | 1 — MVP | ✅ done | Fields, methods, Any, basic adapters, examples |
-| 2 — Methods | 🔄 in progress | Overload scoring, span invoke, typed resolve/invoke, constructors, adapters |
-| 3 — DLL | 🚧 planned | Cross‑DLL registry export/merge, interop tests |
+| 2 — Methods | ✅ done | Overload scoring, span invoke, typed resolve/invoke, constructors, adapters |
+| 3 — DLL | ✅ done | Export blob, merge path, diagnostics/verification, interop coverage |
 | 4 — Attributes/Codegen | 🚧 planned | Attributes storage, scanner prototype |
 | 5 — Perf/Memory | 🚧 planned | Interning/layout tuning, allocator use |
 | 6 — Docs/Samples | 🚧 planned | Guides and additional samples |
@@ -183,20 +183,31 @@ Phase 1 — MVP (single‑module, no DLL) — Implemented
 - Benchmarks: invoke vs direct call; SetAny vs direct set; conversion invoke.
 - ABI stub: `NGINReflectionExportV1` returns registry counts (blob TBD).
 
-Phase 2 — Methods & Invocation (in progress)
+Phase 2 — Methods & Invocation (implemented)
 
-- Refine overload scoring (promotion vs conversion tiers; better signedness handling; tie‑break on specificity).
-- Add `std::span<const Any>` and convenience invoke overloads.
-- Constructor descriptors and default construction support.
-- Expand adapters (map/optional) and registry‑aware container metadata.
-- Benchmarks to track call and conversion overhead.
+- Refined overload scoring (promotion vs conversion tiers; improved signedness handling; better specificity tie-breaks).
+- Added `std::span<const Any>` invoke overloads plus typed resolve/invoke helpers.
+- Introduced constructor descriptors, default construction helpers, and runtime construction APIs.
+- Expanded adapters (map/optional/FlatHashMap) and registry-aware metadata.
+- Added benchmarks covering method invocation, conversions, and field access.
 
-Phase 3 — Cross‑DLL Registry
+Phase 3 — Cross‑DLL Registry (implemented)
 
-- ABI structs for registry and function pointer table; exported C entrypoint (`NGINReflectionExportV1`) defined in `include/NGIN/Reflection/ABI.hpp`.
-- Merge logic, deduplication by TypeId, conflict diagnostics.
-- Stable index handles; ensure no raw pointers leak across modules.
-- Interop tests with two shared libraries built and loaded at runtime.
+- Implemented ABI V1 export (`NGINReflectionExportV1`) and binary blob layout generation.
+- Landed module merge path with type dedupe/aliasing, optional `MergeDiagnostics` collection, `VerifyProcessRegistry` helper, and dual-plugin interop + negative fixtures.
+- Host usage (opt-in):
+  ```cpp
+  NGINReflectionRegistryV1 mod{};
+  MergeDiagnostics diag{};
+  const char *err = nullptr;
+  if (!MergeRegistryV1(mod, nullptr, &err, &diag) && diag.HasConflicts()) {
+    // inspect diag.typeConflicts for each duplicate TypeId
+  }
+  VerifyRegistryOptions opts{};
+  opts.checkMethodOverloads = true;
+  (void)VerifyProcessRegistry(opts); // optional post-merge consistency check
+  ```
+- Future refinements: richer logging hooks and cross-module diagnostics as consumers request them.
 
 Phase 4 — Attributes & Codegen Hooks
 
