@@ -50,7 +50,7 @@ auto tm = GetType<Math>(); Math m{};
 
 // Resolve by runtime args (promotions/conversions applied)
 Any args[2] = { Any{3}, Any{2.5} };
-auto mr = tm.ResolveMethod("mul", args, 2).value();
+auto mr = tm.ResolveMethod("mul", args, 2).value(); // ResolvedMethod
 auto out = mr.Invoke(&m, args, 2).value().Cast<double>();
 
 // Resolve by compile-time signature (exact match)
@@ -65,6 +65,7 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
 
 - Types: lookup by qualified name or TypeId; size/alignment; `GetType<T>()` registers, `TryGetType<T>()` and `FindType(name)` do not.
 - Fields: enumerate/find (`GetField`, `FindField`); GetMut/GetConst; typed `Get<T>(obj)`/`Set(obj, value)`; `GetAny`/`SetAny`; field attributes.
+- Properties: getter/setter registration with `property<Getter, Setter>()`; read-only when no setter is available.
 - Methods: enumerate/find (`GetMethod`, `FindMethods`); overload resolution with promotions/conversions; method attributes.
 - Typed APIs: `ResolveMethod<R, A...>()` or `ResolveMethod<R(Args...)>()`, `Method::InvokeAs<R>(obj, args...)`, `Type::InvokeAs<R, A...>(name, obj, args...)`.
 - Constructors: default construction and registered parameterized constructors via `TypeBuilder::constructor<Args...>()` + `Type::Construct(...)` and `DefaultConstruct()`.

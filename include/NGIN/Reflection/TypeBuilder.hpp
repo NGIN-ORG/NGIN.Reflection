@@ -15,6 +15,12 @@
 namespace NGIN::Reflection
 {
 
+  namespace detail
+  {
+    template <auto Getter>
+    Any PropertyGet(const void *obj);
+  }
+
   template <class T>
   class TypeBuilder
   {
@@ -67,6 +73,13 @@ namespace NGIN::Reflection
     template <auto MemFn>
     TypeBuilder &method(std::string_view name);
 
+    // Add a property using getter and optional setter.
+    template <auto Getter>
+    TypeBuilder &property(std::string_view name);
+
+    template <auto Getter, auto Setter>
+    TypeBuilder &property(std::string_view name);
+
     // Add a constructor descriptor for T with parameter types A...
     template <class... A>
     TypeBuilder &constructor();
@@ -97,6 +110,24 @@ namespace NGIN::Reflection
       return *this;
     }
 
+    // Attach attribute to a specific property by getter.
+    template <auto Getter>
+    TypeBuilder &property_attribute(std::string_view key, const AttrValue &value)
+    {
+      auto &reg = detail::GetRegistry();
+      auto *fn = &detail::PropertyGet<Getter>;
+      auto &props = reg.types[m_index].properties;
+      for (auto i = NGIN::UIntSize{0}; i < props.Size(); ++i)
+      {
+        if (props[i].get == fn)
+        {
+          props[i].attributes.PushBack(AttributeDesc{key, value});
+          break;
+        }
+      }
+      return *this;
+    }
+
     // Attach attribute to a specific method by member function pointer.
     template <auto MemFn>
     TypeBuilder &method_attribute(std::string_view key, const AttrValue &value);
@@ -115,6 +146,151 @@ namespace NGIN::Reflection
     struct MethodTraits;
 
     using NGIN::Reflection::detail::ConvertAny; // reuse shared conversion
+
+    template <typename>
+    struct GetterTraits;
+
+    template <class C, class R>
+    struct GetterTraits<R (C::*)()>
+    {
+      using Class = C;
+      using Ret = R;
+      static constexpr bool IsConst = false;
+      static constexpr bool IsMember = true;
+    };
+
+    template <class C, class R>
+    struct GetterTraits<R (C::*)() const>
+    {
+      using Class = C;
+      using Ret = R;
+      static constexpr bool IsConst = true;
+      static constexpr bool IsMember = true;
+    };
+
+    template <class C, class R>
+    struct GetterTraits<R (*)(C &)>
+    {
+      using Class = C;
+      using Ret = R;
+      static constexpr bool IsConst = false;
+      static constexpr bool IsMember = false;
+    };
+
+    template <class C, class R>
+    struct GetterTraits<R (*)(const C &)>
+    {
+      using Class = C;
+      using Ret = R;
+      static constexpr bool IsConst = true;
+      static constexpr bool IsMember = false;
+    };
+
+    template <typename>
+    struct SetterTraits;
+
+    template <class C, class A>
+    struct SetterTraits<void (C::*)(A)>
+    {
+      using Class = C;
+      using Arg = A;
+      static constexpr bool IsMember = true;
+    };
+
+    template <class C, class A>
+    struct SetterTraits<void (C::*)(A) const>
+    {
+      using Class = C;
+      using Arg = A;
+      static constexpr bool IsMember = true;
+    };
+
+    template <class C, class A>
+    struct SetterTraits<void (*)(C &, A)>
+    {
+      using Class = C;
+      using Arg = A;
+      static constexpr bool IsMember = false;
+    };
+
+    template <auto Getter>
+    static Any PropertyGet(const void *obj)
+    {
+      using Traits = GetterTraits<decltype(Getter)>;
+      using C = typename Traits::Class;
+      if constexpr (Traits::IsMember)
+      {
+        if constexpr (Traits::IsConst)
+        {
+          auto *c = static_cast<const C *>(obj);
+          return Any{(c->*Getter)()};
+        }
+        else
+        {
+          auto *c = const_cast<C *>(static_cast<const C *>(obj));
+          return Any{(c->*Getter)()};
+        }
+      }
+      else
+      {
+        if constexpr (Traits::IsConst)
+        {
+          const auto &c = *static_cast<const C *>(obj);
+          return Any{Getter(c)};
+        }
+        else
+        {
+          auto &c = *const_cast<C *>(static_cast<const C *>(obj));
+          return Any{Getter(c)};
+        }
+      }
+    }
+
+    template <auto Setter>
+    static std::expected<void, Error> PropertySet(void *obj, const Any &value)
+    {
+      using Traits = SetterTraits<decltype(Setter)>;
+      using C = typename Traits::Class;
+      using Arg = std::remove_cv_t<std::remove_reference_t<typename Traits::Arg>>;
+      auto conv = ConvertAny<Arg>(value);
+      if (!conv.has_value())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
+      if constexpr (Traits::IsMember)
+      {
+        auto *c = static_cast<C *>(obj);
+        (c->*Setter)(conv.value());
+      }
+      else
+      {
+        auto &c = *static_cast<C *>(obj);
+        Setter(c, conv.value());
+      }
+      return {};
+    }
+
+    template <auto Getter>
+    static std::expected<void, Error> PropertySetFromGetter(void *obj, const Any &value)
+    {
+      using Traits = GetterTraits<decltype(Getter)>;
+      using Ret = typename Traits::Ret;
+      using Arg = std::remove_cv_t<std::remove_reference_t<Ret>>;
+      static_assert(std::is_lvalue_reference_v<Ret> && !std::is_const_v<std::remove_reference_t<Ret>>,
+                    "Getter must return non-const lvalue reference to enable implicit setter");
+      auto conv = ConvertAny<Arg>(value);
+      if (!conv.has_value())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
+      if constexpr (Traits::IsMember)
+      {
+        auto *c = static_cast<typename Traits::Class *>(obj);
+        (c->*Getter)() = conv.value();
+      }
+      else
+      {
+        auto &c = *static_cast<typename Traits::Class *>(obj);
+        Getter(c) = conv.value();
+      }
+      return {};
+    }
 
     template <std::size_t I, class Tuple>
     inline NGIN::UInt64 param_type_id()
@@ -258,6 +434,58 @@ namespace NGIN::Reflection
     {
       vecPtr->PushBack(newIndex);
     }
+    return *this;
+  }
+
+  // ==== Property registration ====
+  template <class T>
+  template <auto Getter>
+  inline TypeBuilder<T> &TypeBuilder<T>::property(std::string_view name)
+  {
+    using Traits = detail::GetterTraits<decltype(Getter)>;
+    static_assert(std::is_same_v<typename Traits::Class, T>, "Property getter must belong to T");
+    auto &reg = detail::GetRegistry();
+    detail::PropertyRuntimeDesc p{};
+    auto nameId = detail::InternNameId(name);
+    p.nameId = nameId;
+    p.name = detail::NameFromId(nameId);
+    using Ret = typename Traits::Ret;
+    using Value = std::remove_cv_t<std::remove_reference_t<Ret>>;
+    auto sv = NGIN::Meta::TypeName<Value>::qualifiedName;
+    p.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
+    p.get = &detail::PropertyGet<Getter>;
+    if constexpr (std::is_lvalue_reference_v<Ret> && !std::is_const_v<std::remove_reference_t<Ret>>)
+    {
+      p.set = &detail::PropertySetFromGetter<Getter>;
+    }
+    reg.types[m_index].properties.PushBack(std::move(p));
+    const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].properties.Size() - 1);
+    reg.types[m_index].propertyIndex.Insert(reg.types[m_index].properties[newIdx].nameId, newIdx);
+    return *this;
+  }
+
+  template <class T>
+  template <auto Getter, auto Setter>
+  inline TypeBuilder<T> &TypeBuilder<T>::property(std::string_view name)
+  {
+    using GetTraits = detail::GetterTraits<decltype(Getter)>;
+    using SetTraits = detail::SetterTraits<decltype(Setter)>;
+    static_assert(std::is_same_v<typename GetTraits::Class, T>, "Property getter must belong to T");
+    static_assert(std::is_same_v<typename SetTraits::Class, T>, "Property setter must belong to T");
+    auto &reg = detail::GetRegistry();
+    detail::PropertyRuntimeDesc p{};
+    auto nameId = detail::InternNameId(name);
+    p.nameId = nameId;
+    p.name = detail::NameFromId(nameId);
+    using Ret = typename GetTraits::Ret;
+    using Value = std::remove_cv_t<std::remove_reference_t<Ret>>;
+    auto sv = NGIN::Meta::TypeName<Value>::qualifiedName;
+    p.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
+    p.get = &detail::PropertyGet<Getter>;
+    p.set = &detail::PropertySet<Setter>;
+    reg.types[m_index].properties.PushBack(std::move(p));
+    const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].properties.Size() - 1);
+    reg.types[m_index].propertyIndex.Insert(reg.types[m_index].properties[newIdx].nameId, newIdx);
     return *this;
   }
 

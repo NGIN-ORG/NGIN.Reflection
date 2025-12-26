@@ -114,6 +114,43 @@ namespace NGIN::Reflection
     return std::nullopt;
   }
 
+  NGIN::UIntSize Type::PropertyCount() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.index].properties.Size();
+  }
+
+  Property Type::PropertyAt(NGIN::UIntSize i) const
+  {
+    return Property{PropertyHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+  }
+
+  ExpectedProperty Type::GetProperty(std::string_view name) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *p = tdesc.propertyIndex.GetPtr(nid))
+        return Property{PropertyHandle{m_h.index, *p}};
+    }
+    return std::unexpected(Error{ErrorCode::NotFound, "property not found"});
+  }
+
+  std::optional<Property> Type::FindProperty(std::string_view name) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *p = tdesc.propertyIndex.GetPtr(nid))
+        return Property{PropertyHandle{m_h.index, *p}};
+    }
+    return std::nullopt;
+  }
+
   // Field
   std::string_view Field::name() const
   {
@@ -190,6 +227,60 @@ namespace NGIN::Reflection
     return std::unexpected(Error{ErrorCode::NotFound, "attribute not found"});
   }
 
+  // Property
+  std::string_view Property::name() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].name;
+  }
+
+  NGIN::UInt64 Property::type_id() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].typeId;
+  }
+
+  Any Property::GetAny(const void *obj) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
+    if (p.get)
+      return p.get(obj);
+    return Any::MakeVoid();
+  }
+
+  std::expected<void, Error> Property::SetAny(void *obj, const Any &value) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
+    if (!p.set)
+      return std::unexpected(Error{ErrorCode::InvalidArgument, "property is read-only"});
+    return p.set(obj, value);
+  }
+
+  NGIN::UIntSize Property::attribute_count() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes.Size();
+  }
+
+  AttributeView Property::attribute_at(NGIN::UIntSize i) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &a = reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes[i];
+    return AttributeView{a.key, &a.value};
+  }
+
+  std::expected<AttributeView, Error> Property::attribute(std::string_view key) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &v = reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes;
+    for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
+      if (v[i].key == key)
+        return AttributeView{v[i].key, &v[i].value};
+    return std::unexpected(Error{ErrorCode::NotFound, "attribute not found"});
+  }
+
   // Method
   std::string_view Method::GetName() const
   {
@@ -234,6 +325,45 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_typeIndex].methods[m_methodIndex].attributes;
+    for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
+      if (v[i].key == key)
+        return AttributeView{v[i].key, &v[i].value};
+    return std::unexpected(Error{ErrorCode::NotFound, "attribute not found"});
+  }
+
+  // Constructor
+  NGIN::UIntSize Constructor::ParameterCount() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].paramTypeIds.Size();
+  }
+
+  std::expected<Any, Error> Constructor::Construct(const Any *args, NGIN::UIntSize count) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &c = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex];
+    if (!c.construct)
+      return std::unexpected(Error{ErrorCode::NotFound, "constructor not available"});
+    return c.construct(args, count);
+  }
+
+  NGIN::UIntSize Constructor::attribute_count() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes.Size();
+  }
+
+  AttributeView Constructor::attribute_at(NGIN::UIntSize i) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &a = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes[i];
+    return AttributeView{a.key, &a.value};
+  }
+
+  std::expected<AttributeView, Error> Constructor::attribute(std::string_view key) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &v = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
       if (v[i].key == key)
         return AttributeView{v[i].key, &v[i].value};
@@ -395,7 +525,7 @@ namespace NGIN::Reflection
     return {3, 0, 1};
   }
 
-  std::expected<Method, Error> Type::ResolveMethod(std::string_view name, const Any *args, NGIN::UIntSize count) const
+  std::expected<ResolvedMethod, Error> Type::ResolveMethod(std::string_view name, const Any *args, NGIN::UIntSize count) const
   {
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
@@ -414,12 +544,22 @@ namespace NGIN::Reflection
       NGIN::UInt32 idx;
     };
     Key best{INT_MAX, INT_MAX, INT_MAX, 0};
+    NGIN::Containers::Vector<OverloadDiagnostic> diags;
+    diags.Reserve(vec->Size());
     for (NGIN::UIntSize k = 0; k < vec->Size(); ++k)
     {
       auto mi = (*vec)[k];
       const auto &m = tdesc.methods[mi];
+      OverloadDiagnostic diag{};
+      diag.methodIndex = mi;
+      diag.name = m.name;
+      diag.arity = m.paramTypeIds.Size();
       if (m.paramTypeIds.Size() != count)
+      {
+        diag.code = DiagnosticCode::ArityMismatch;
+        diags.PushBack(std::move(diag));
         continue;
+      }
       int total = 0;
       int nar = 0;
       int conv = 0;
@@ -432,6 +572,8 @@ namespace NGIN::Reflection
         if (d.cost >= 1000)
         {
           ok = false;
+          diag.code = DiagnosticCode::NonConvertible;
+          diag.argIndex = i;
           break;
         }
         total += d.cost;
@@ -440,6 +582,10 @@ namespace NGIN::Reflection
       }
       if (ok)
       {
+        diag.code = DiagnosticCode::None;
+        diag.totalCost = total;
+        diag.narrow = nar;
+        diag.conversions = conv;
         Key cur{total, nar, conv, static_cast<NGIN::UInt32>(k)};
         if (std::tuple{cur.total, cur.nar, cur.conv, cur.idx} < std::tuple{best.total, best.nar, best.conv, best.idx})
         {
@@ -447,10 +593,18 @@ namespace NGIN::Reflection
           bestIdx = mi;
         }
       }
+      diags.PushBack(std::move(diag));
     }
     if (bestIdx == static_cast<NGIN::UInt32>(-1))
-      return std::unexpected(Error{ErrorCode::InvalidArgument, "no viable overload"});
-    return Method{m_h.index, bestIdx};
+      return std::unexpected(Error{ErrorCode::InvalidArgument, "no viable overload", std::move(diags)});
+    NGIN::Containers::Vector<NGIN::UInt64> argTypeIds;
+    if (count > 0)
+    {
+      argTypeIds.Reserve(count);
+      for (NGIN::UIntSize i = 0; i < count; ++i)
+        argTypeIds.PushBack(args[i].GetTypeId());
+    }
+    return ResolvedMethod{m_h.index, bestIdx, std::move(argTypeIds)};
   }
 
   // Constructors
@@ -458,6 +612,11 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].constructors.Size();
+  }
+
+  Constructor Type::ConstructorAt(NGIN::UIntSize i) const
+  {
+    return Constructor{ConstructorHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
   }
 
   std::expected<Any, Error> Type::Construct(const Any *args, NGIN::UIntSize count) const
@@ -545,6 +704,34 @@ namespace NGIN::Reflection
       if (v[i].key == key)
         return AttributeView{v[i].key, &v[i].value};
     return std::unexpected(Error{ErrorCode::NotFound, "attribute not found"});
+  }
+
+  NGIN::UIntSize Type::MemberCount() const
+  {
+    const auto &reg = GetRegistry();
+    const auto &t = reg.types[m_h.index];
+    return t.fields.Size() + t.properties.Size() + t.methods.Size() + t.constructors.Size();
+  }
+
+  Member Type::MemberAt(NGIN::UIntSize i) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &t = reg.types[m_h.index];
+    const auto fCount = t.fields.Size();
+    const auto pCount = t.properties.Size();
+    const auto mCount = t.methods.Size();
+    if (i < fCount)
+      return Member{MemberHandle{MemberKind::Field, m_h.index, static_cast<NGIN::UInt32>(i)}};
+    i -= fCount;
+    if (i < pCount)
+      return Member{MemberHandle{MemberKind::Property, m_h.index, static_cast<NGIN::UInt32>(i)}};
+    i -= pCount;
+    if (i < mCount)
+      return Member{MemberHandle{MemberKind::Method, m_h.index, static_cast<NGIN::UInt32>(i)}};
+    i -= mCount;
+    if (i < t.constructors.Size())
+      return Member{MemberHandle{MemberKind::Constructor, m_h.index, static_cast<NGIN::UInt32>(i)}};
+    return Member{};
   }
 
 } // namespace NGIN::Reflection

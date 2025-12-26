@@ -5,7 +5,7 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 ## Goals
 
 - No macros in public headers or user code; pure C++23 API.
-- Runtime reflection for types, fields, methods, attributes via ADL + fluent TypeBuilder.
+- Runtime reflection for types, fields, properties, methods, attributes via ADL + fluent TypeBuilder.
 - Cross‑platform (Windows/Linux/macOS) with a clear cross‑DLL strategy.
 - Prefer NGIN.Base primitives/containers over STL; minimal STL (string_view, expected, span, variant).
 - Deterministic, allocation‑disciplined, and cache‑friendly.
@@ -32,9 +32,10 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 ## Lookup APIs
 
 - `GetType<T>()` ensures registration; `TryGetType<T>()` and `FindType(name)` do not register.
-- `GetField`/`GetMethod` return `std::expected` with errors; `FindField`/`FindMethod` return `std::optional`.
+- `GetField`/`GetProperty`/`GetMethod` return `std::expected` with errors; `FindField`/`FindProperty`/`FindMethod` return `std::optional`.
 - `FindMethods(name)` returns an overload view (size + index access).
 - Fields expose typed `Get<T>(obj)`/`Set(obj, value)` helpers in addition to Any-based access.
+- `ResolveMethod(name, args)` returns a `ResolvedMethod` that caches the argument shape.
 
 ## ABI Strategy (Phase 3, partial)
 
@@ -51,8 +52,9 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 
 ## Data Structures
 
-- `TypeRuntimeDesc`: name, `typeId`, size, align, fields, methods, attributes, overload map.
+- `TypeRuntimeDesc`: name, `typeId`, size, align, fields, properties, methods, attributes, overload map.
 - `FieldRuntimeDesc`: name, typeId, size, function pointers for get/load/store, attributes.
+- `PropertyRuntimeDesc`: name, typeId, get/set thunks, attributes.
 - `MethodRuntimeDesc`: name, return typeId, param typeIds, invoker FP, attributes.
 - `CtorRuntimeDesc`: param typeIds, construct FP, attributes.
 - Global `Registry`: vectors of types and hash maps for lookups.
@@ -61,8 +63,9 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 
 - `b.set_name(qualified)`
 - `b.field<&T::member>(name)`
+- `b.property<Getter, Setter>(name)` or `b.property<Getter>(name)` (getter-only)
 - `b.method<sig>(name)` — use explicit member pointer type to disambiguate overloads
-- `b.attribute(key, value)` / `b.field_attribute<member>(...)` / `b.method_attribute<sig>(...)`
+- `b.attribute(key, value)` / `b.field_attribute<member>(...)` / `b.property_attribute<getter>(...)` / `b.method_attribute<sig>(...)`
 - `b.constructor<Args...>()`
 
 ## Invocation & Overload Resolution
