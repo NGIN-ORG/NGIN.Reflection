@@ -12,10 +12,10 @@ namespace DiagDemo
   {
     int f(int) const { return 1; }
     double f(double) const { return 2.0; }
-    friend void ngin_reflect(NGIN::Reflection::Tag<D>, NGIN::Reflection::TypeBuilder<D> &b)
+    friend void NginReflect(NGIN::Reflection::Tag<D>, NGIN::Reflection::TypeBuilder<D> &b)
     {
-      b.method<static_cast<int (D::*)(int) const>(&D::f)>("f");
-      b.method<static_cast<double (D::*)(double) const>(&D::f)>("f");
+      b.Method<static_cast<int (D::*)(int) const>(&D::f)>("f");
+      b.Method<static_cast<double (D::*)(double) const>(&D::f)>("f");
     }
   };
 } // namespace DiagDemo

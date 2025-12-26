@@ -216,9 +216,9 @@ namespace NGIN::Reflection
       return std::nullopt;
     if (info.isSigned)
     {
-      if (!info.toSigned)
+      if (!info.ToSigned)
         return std::nullopt;
-      auto r = info.toSigned(value);
+      auto r = info.ToSigned(value);
       if (!r.has_value())
         return std::nullopt;
       for (NGIN::UIntSize i = 0; i < info.values.Size(); ++i)
@@ -229,9 +229,9 @@ namespace NGIN::Reflection
     }
     else
     {
-      if (!info.toUnsigned)
+      if (!info.ToUnsigned)
         return std::nullopt;
-      auto r = info.toUnsigned(value);
+      auto r = info.ToUnsigned(value);
       if (!r.has_value())
         return std::nullopt;
       for (NGIN::UIntSize i = 0; i < info.values.Size(); ++i)
@@ -244,13 +244,13 @@ namespace NGIN::Reflection
   }
 
   // Field
-  std::string_view Field::name() const
+  std::string_view Field::Name() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].name;
   }
 
-  NGIN::UInt64 Field::type_id() const
+  NGIN::UInt64 Field::TypeId() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].typeId;
@@ -272,8 +272,8 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
-    if (f.load)
-      return f.load(obj);
+    if (f.Load)
+      return f.Load(obj);
     return Any::MakeVoid();
   }
 
@@ -281,8 +281,8 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
-    if (f.store)
-      return f.store(obj, value);
+    if (f.Store)
+      return f.Store(obj, value);
     if (value.GetTypeId() != f.typeId)
     {
       return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
@@ -296,20 +296,20 @@ namespace NGIN::Reflection
     return {};
   }
 
-  NGIN::UIntSize Field::attribute_count() const
+  NGIN::UIntSize Field::AttributeCount() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].attributes.Size();
   }
 
-  AttributeView Field::attribute_at(NGIN::UIntSize i) const
+  AttributeView Field::AttributeAt(NGIN::UIntSize i) const
   {
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_h.typeIndex].fields[m_h.fieldIndex].attributes[i];
     return AttributeView{a.key, &a.value};
   }
 
-  std::expected<AttributeView, Error> Field::attribute(std::string_view key) const
+  std::expected<AttributeView, Error> Field::Attribute(std::string_view key) const
   {
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.typeIndex].fields[m_h.fieldIndex].attributes;
@@ -320,13 +320,13 @@ namespace NGIN::Reflection
   }
 
   // Property
-  std::string_view Property::name() const
+  std::string_view Property::Name() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].name;
   }
 
-  NGIN::UInt64 Property::type_id() const
+  NGIN::UInt64 Property::TypeId() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].typeId;
@@ -336,8 +336,8 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
-    if (p.get)
-      return p.get(obj);
+    if (p.Get)
+      return p.Get(obj);
     return Any::MakeVoid();
   }
 
@@ -345,25 +345,25 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
-    if (!p.set)
+    if (!p.Set)
       return std::unexpected(Error{ErrorCode::InvalidArgument, "property is read-only"});
-    return p.set(obj, value);
+    return p.Set(obj, value);
   }
 
-  NGIN::UIntSize Property::attribute_count() const
+  NGIN::UIntSize Property::AttributeCount() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes.Size();
   }
 
-  AttributeView Property::attribute_at(NGIN::UIntSize i) const
+  AttributeView Property::AttributeAt(NGIN::UIntSize i) const
   {
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes[i];
     return AttributeView{a.key, &a.value};
   }
 
-  std::expected<AttributeView, Error> Property::attribute(std::string_view key) const
+  std::expected<AttributeView, Error> Property::Attribute(std::string_view key) const
   {
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes;
@@ -374,7 +374,7 @@ namespace NGIN::Reflection
   }
 
   // EnumValue
-  std::string_view EnumValue::name() const
+  std::string_view EnumValue::Name() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].enumInfo.values[m_h.valueIndex].name;
@@ -413,20 +413,20 @@ namespace NGIN::Reflection
 
   // span-based convenience overloads are defined inline in the header
 
-  NGIN::UIntSize Method::attribute_count() const
+  NGIN::UIntSize Method::AttributeCount() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_typeIndex].methods[m_methodIndex].attributes.Size();
   }
 
-  AttributeView Method::attribute_at(NGIN::UIntSize i) const
+  AttributeView Method::AttributeAt(NGIN::UIntSize i) const
   {
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_typeIndex].methods[m_methodIndex].attributes[i];
     return AttributeView{a.key, &a.value};
   }
 
-  std::expected<AttributeView, Error> Method::attribute(std::string_view key) const
+  std::expected<AttributeView, Error> Method::Attribute(std::string_view key) const
   {
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_typeIndex].methods[m_methodIndex].attributes;
@@ -461,20 +461,20 @@ namespace NGIN::Reflection
     return reg.functions[m_h.index].Invoke(args, count);
   }
 
-  NGIN::UIntSize Function::attribute_count() const
+  NGIN::UIntSize Function::AttributeCount() const
   {
     const auto &reg = GetRegistry();
     return reg.functions[m_h.index].attributes.Size();
   }
 
-  AttributeView Function::attribute_at(NGIN::UIntSize i) const
+  AttributeView Function::AttributeAt(NGIN::UIntSize i) const
   {
     const auto &reg = GetRegistry();
     const auto &a = reg.functions[m_h.index].attributes[i];
     return AttributeView{a.key, &a.value};
   }
 
-  std::expected<AttributeView, Error> Function::attribute(std::string_view key) const
+  std::expected<AttributeView, Error> Function::Attribute(std::string_view key) const
   {
     const auto &reg = GetRegistry();
     const auto &v = reg.functions[m_h.index].attributes;
@@ -495,25 +495,25 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &c = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex];
-    if (!c.construct)
+    if (!c.Construct)
       return std::unexpected(Error{ErrorCode::NotFound, "constructor not available"});
-    return c.construct(args, count);
+    return c.Construct(args, count);
   }
 
-  NGIN::UIntSize Constructor::attribute_count() const
+  NGIN::UIntSize Constructor::AttributeCount() const
   {
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes.Size();
   }
 
-  AttributeView Constructor::attribute_at(NGIN::UIntSize i) const
+  AttributeView Constructor::AttributeAt(NGIN::UIntSize i) const
   {
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes[i];
     return AttributeView{a.key, &a.value};
   }
 
-  std::expected<AttributeView, Error> Constructor::attribute(std::string_view key) const
+  std::expected<AttributeView, Error> Constructor::Attribute(std::string_view key) const
   {
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes;
@@ -980,8 +980,8 @@ namespace NGIN::Reflection
       for (NGIN::UIntSize i = 0; i < tdesc.constructors.Size(); ++i)
       {
         const auto &c = tdesc.constructors[i];
-        if (c.paramTypeIds.Size() == 0 && c.construct)
-          return c.construct(nullptr, 0);
+        if (c.paramTypeIds.Size() == 0 && c.Construct)
+          return c.Construct(nullptr, 0);
       }
       return std::unexpected(Error{ErrorCode::NotFound, "no default constructor"});
     }
@@ -1031,7 +1031,7 @@ namespace NGIN::Reflection
     }
     if (bestIdx == static_cast<NGIN::UInt32>(-1))
       return std::unexpected(Error{ErrorCode::InvalidArgument, "no viable constructor"});
-    return tdesc.constructors[bestIdx].construct(args, count);
+    return tdesc.constructors[bestIdx].Construct(args, count);
   }
 
   NGIN::UIntSize Type::AttributeCount() const
@@ -1135,43 +1135,43 @@ namespace NGIN::Reflection
   {
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
-    if (!b.upcast)
+    if (!b.Upcast)
       return nullptr;
-    return b.upcast(obj);
+    return b.Upcast(obj);
   }
 
   const void *Base::Upcast(const void *obj) const
   {
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
-    if (!b.upcastConst)
+    if (!b.UpcastConst)
       return nullptr;
-    return b.upcastConst(obj);
+    return b.UpcastConst(obj);
   }
 
   void *Base::Downcast(void *obj) const
   {
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
-    if (!b.downcast)
+    if (!b.Downcast)
       return nullptr;
-    return b.downcast(obj);
+    return b.Downcast(obj);
   }
 
   const void *Base::Downcast(const void *obj) const
   {
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
-    if (!b.downcastConst)
+    if (!b.DowncastConst)
       return nullptr;
-    return b.downcastConst(obj);
+    return b.DowncastConst(obj);
   }
 
   bool Base::CanDowncast() const
   {
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
-    return b.downcast != nullptr || b.downcastConst != nullptr;
+    return b.Downcast != nullptr || b.DowncastConst != nullptr;
   }
 
 } // namespace NGIN::Reflection

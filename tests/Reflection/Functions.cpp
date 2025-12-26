@@ -15,9 +15,9 @@ namespace FunctionDemo
   struct Math
   {
     static int twice(int v) { return v * 2; }
-    friend void ngin_reflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b)
+    friend void NginReflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b)
     {
-      b.static_method<&Math::twice>("Math::twice");
+      b.StaticMethod<&Math::twice>("Math::twice");
     }
   };
 

@@ -56,25 +56,25 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 
 - `TypeRuntimeDesc`: name, `typeId`, size, align, fields, properties, methods, attributes, overload map.
 - `EnumRuntimeDesc`: underlying type, value table, name index, conversion helpers.
-- `BaseRuntimeDesc`: base type id/index plus upcast/downcast hooks.
-- `FieldRuntimeDesc`: name, typeId, size, function pointers for get/load/store, attributes.
-- `PropertyRuntimeDesc`: name, typeId, get/set thunks, attributes.
+- `BaseRuntimeDesc`: base type id/index plus `Upcast`/`Downcast` hooks.
+- `FieldRuntimeDesc`: name, typeId, size, function pointers for `Get`/`Load`/`Store`, attributes.
+- `PropertyRuntimeDesc`: name, typeId, `Get`/`Set` thunks, attributes.
 - `MethodRuntimeDesc`: name, return typeId, param typeIds, invoker FP, attributes.
 - `FunctionRuntimeDesc`: name, return typeId, param typeIds, invoker FP, attributes.
-- `CtorRuntimeDesc`: param typeIds, construct FP, attributes.
+- `CtorRuntimeDesc`: param typeIds, `Construct` FP, attributes.
 - Global `Registry`: vectors of types and hash maps for lookups.
 
 ## TypeBuilder DSL
 
-- `b.set_name(qualified)`
-- `b.field<&T::member>(name)`
-- `b.property<Getter, Setter>(name)` or `b.property<Getter>(name)` (getter-only)
-- `b.enum_value(name, value)` for enum registration
-- `b.method<sig>(name)` — use explicit member pointer type to disambiguate overloads
-- `b.static_method<&T::fn>(name)` for static member functions (registered as global functions)
-- `b.base<BaseT>()` or `b.base<BaseT, Downcast>()` for base metadata
-- `b.attribute(key, value)` / `b.field_attribute<member>(...)` / `b.property_attribute<getter>(...)` / `b.method_attribute<sig>(...)`
-- `b.constructor<Args...>()`
+- `b.SetName(qualified)`
+- `b.Field<&T::member>(name)`
+- `b.Property<Getter, Setter>(name)` or `b.Property<Getter>(name)` (getter-only)
+- `b.EnumValue(name, value)` for enum registration
+- `b.Method<sig>(name)` — use explicit member pointer type to disambiguate overloads
+- `b.StaticMethod<&T::fn>(name)` for static member functions (registered as global functions)
+- `b.Base<BaseT>()` or `b.Base<BaseT, Downcast>()` for base metadata
+- `b.Attribute(key, value)` / `b.FieldAttribute<member>(...)` / `b.PropertyAttribute<getter>(...)` / `b.MethodAttribute<sig>(...)`
+- `b.Constructor<Args...>()`
 
 ## Invocation & Overload Resolution
 

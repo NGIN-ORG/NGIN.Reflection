@@ -353,7 +353,7 @@ extern "C" NGIN_REFLECTION_API bool NGINReflectionExportV1(NGINReflectionRegistr
         }
       }
       // function pointer table entry (parallel to ctors array)
-      pCtorFp[cIdx - 1] = src.construct;
+      pCtorFp[cIdx - 1] = src.Construct;
     }
 
     // type-level attributes

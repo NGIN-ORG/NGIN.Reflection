@@ -13,11 +13,11 @@ namespace EdgeDemo
     int id{};
     float score{};
   };
-  inline void ngin_reflect(NGIN::Reflection::Tag<User>,
+  inline void NginReflect(NGIN::Reflection::Tag<User>,
                            NGIN::Reflection::TypeBuilder<User> &b)
   {
-    b.field<&User::id>("id");
-    b.field<&User::score>("score");
+    b.Field<&User::id>("id");
+    b.Field<&User::score>("score");
   }
 
   struct Math
@@ -25,13 +25,13 @@ namespace EdgeDemo
     int mul(int a, int b) const { return a * b; }
     float mul(float a, float b) const { return a * b; }
     double mul(int a, double b) const { return a * b; }
-    friend void ngin_reflect(NGIN::Reflection::Tag<Math>,
+    friend void NginReflect(NGIN::Reflection::Tag<Math>,
                              NGIN::Reflection::TypeBuilder<Math> &b)
     {
-      b.method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");
-      b.method<static_cast<float (Math::*)(float, float) const>(&Math::mul)>(
+      b.Method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");
+      b.Method<static_cast<float (Math::*)(float, float) const>(&Math::mul)>(
           "mul");
-      b.method<static_cast<double (Math::*)(int, double) const>(&Math::mul)>(
+      b.Method<static_cast<double (Math::*)(int, double) const>(&Math::mul)>(
           "mul");
     }
   };
@@ -106,7 +106,7 @@ TEST_CASE("AttributesAbsentWhenNotDeclared", "[reflection][EdgeCases]")
 
   auto t = GetType<User>();
   auto f = t.GetField("id").value();
-  CHECK_FALSE(f.attribute("nope").has_value());
+  CHECK_FALSE(f.Attribute("nope").has_value());
 }
 
 TEST_CASE("AnyCopiesHeapFallbackPayloads", "[reflection][EdgeCases]")

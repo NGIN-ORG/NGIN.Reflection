@@ -17,18 +17,18 @@ namespace BaseDemo
 
     static Derived *Downcast(Base *b) { return static_cast<Derived *>(b); }
 
-    friend void ngin_reflect(NGIN::Reflection::Tag<Derived>, NGIN::Reflection::TypeBuilder<Derived> &b)
+    friend void NginReflect(NGIN::Reflection::Tag<Derived>, NGIN::Reflection::TypeBuilder<Derived> &b)
     {
-      b.set_name("BaseDemo::Derived");
-      b.field<&Derived::value>("value");
-      b.base<Base, &Downcast>();
+      b.SetName("BaseDemo::Derived");
+      b.Field<&Derived::value>("value");
+      b.Base<Base, &Downcast>();
     }
   };
 
-  inline void ngin_reflect(NGIN::Reflection::Tag<Base>, NGIN::Reflection::TypeBuilder<Base> &b)
+  inline void NginReflect(NGIN::Reflection::Tag<Base>, NGIN::Reflection::TypeBuilder<Base> &b)
   {
-    b.set_name("BaseDemo::Base");
-    b.field<&Base::id>("id");
+    b.SetName("BaseDemo::Base");
+    b.Field<&Base::id>("id");
   }
 } // namespace BaseDemo
 

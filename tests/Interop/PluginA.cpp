@@ -17,18 +17,18 @@ namespace Interop
 
   // ADL friends for reflection
   template <class T>
-  void ngin_reflect(NGIN::Reflection::Tag<T>, NGIN::Reflection::TypeBuilder<T> &);
+  void NginReflect(NGIN::Reflection::Tag<T>, NGIN::Reflection::TypeBuilder<T> &);
 
   template <>
-  void ngin_reflect<Common>(NGIN::Reflection::Tag<Common>, NGIN::Reflection::TypeBuilder<Common> &b)
+  void NginReflect<Common>(NGIN::Reflection::Tag<Common>, NGIN::Reflection::TypeBuilder<Common> &b)
   {
-    b.field<&Common::a>("a");
+    b.Field<&Common::a>("a");
   }
 
   template <>
-  void ngin_reflect<Adder>(NGIN::Reflection::Tag<Adder>, NGIN::Reflection::TypeBuilder<Adder> &b)
+  void NginReflect<Adder>(NGIN::Reflection::Tag<Adder>, NGIN::Reflection::TypeBuilder<Adder> &b)
   {
-    b.method<&Adder::Add>("Add");
+    b.Method<&Adder::Add>("Add");
   }
 }
 

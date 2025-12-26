@@ -190,7 +190,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         }
         rec.constructors.PushBack(std::move(cd));
         if (ctorFp)
-          rec.constructors[rec.constructors.Size() - 1].construct = ctorFp[ctorGlobalIdx];
+          rec.constructors[rec.constructors.Size() - 1].Construct = ctorFp[ctorGlobalIdx];
         ++ctorGlobalIdx;
       }
     }

@@ -90,8 +90,8 @@ namespace NGIN::Reflection
       NGIN::UIntSize sizeBytes{0};
       void *(*GetMut)(void *){nullptr};
       const void *(*GetConst)(const void *){nullptr};
-      Any (*load)(const void *){nullptr};
-      std::expected<void, Error> (*store)(void *, const Any &){nullptr};
+      Any (*Load)(const void *){nullptr};
+      std::expected<void, Error> (*Store)(void *, const Any &){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -100,8 +100,8 @@ namespace NGIN::Reflection
       std::string_view name;
       NameId nameId{static_cast<NameId>(-1)};
       NGIN::UInt64 typeId;
-      Any (*get)(const void *){nullptr};
-      std::expected<void, Error> (*set)(void *, const Any &){nullptr};
+      Any (*Get)(const void *){nullptr};
+      std::expected<void, Error> (*Set)(void *, const Any &){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -143,24 +143,24 @@ namespace NGIN::Reflection
       NGIN::UInt64 underlyingTypeId{0};
       NGIN::Containers::Vector<EnumValueRuntimeDesc> values;
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> valueIndex;
-      std::expected<std::uint64_t, Error> (*toUnsigned)(const Any &){nullptr};
-      std::expected<std::int64_t, Error> (*toSigned)(const Any &){nullptr};
+      std::expected<std::uint64_t, Error> (*ToUnsigned)(const Any &){nullptr};
+      std::expected<std::int64_t, Error> (*ToSigned)(const Any &){nullptr};
     };
 
     struct BaseRuntimeDesc
     {
       NGIN::UInt32 baseTypeIndex{static_cast<NGIN::UInt32>(-1)};
       NGIN::UInt64 baseTypeId{0};
-      void *(*upcast)(void *){nullptr};
-      const void *(*upcastConst)(const void *){nullptr};
-      void *(*downcast)(void *){nullptr};
-      const void *(*downcastConst)(const void *){nullptr};
+      void *(*Upcast)(void *){nullptr};
+      const void *(*UpcastConst)(const void *){nullptr};
+      void *(*Downcast)(void *){nullptr};
+      const void *(*DowncastConst)(const void *){nullptr};
     };
 
     struct CtorRuntimeDesc
     {
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
-      std::expected<Any, Error> (*construct)(const Any *, NGIN::UIntSize){nullptr};
+      std::expected<Any, Error> (*Construct)(const Any *, NGIN::UIntSize){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -199,8 +199,8 @@ namespace NGIN::Reflection
 
     template <class T>
     concept HasNginReflectWithTypeBuilder = requires(TypeBuilder<T> &b) {
-      // ADL friend should be declared as: friend void ngin_reflect(Tag<T>, TypeBuilder<T>&)
-      { ngin_reflect(Tag<T>{}, b) } -> std::same_as<void>;
+      // ADL friend should be declared as: friend void NginReflect(Tag<T>, TypeBuilder<T>&)
+      { NginReflect(Tag<T>{}, b) } -> std::same_as<void>;
     };
 
     // Detection for Describe<T>::Do(TypeBuilder<T>&)
@@ -342,7 +342,7 @@ namespace NGIN::Reflection
       if constexpr (std::is_default_constructible_v<U>)
       {
         CtorRuntimeDesc c{};
-        c.construct = [](const Any *, NGIN::UIntSize cnt) -> std::expected<Any, Error>
+        c.Construct = [](const Any *, NGIN::UIntSize cnt) -> std::expected<Any, Error>
         {
           if (cnt != 0)
             return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
@@ -378,7 +378,7 @@ namespace NGIN::Reflection
       if constexpr (HasNginReflectWithTypeBuilder<U>)
       {
         TypeBuilder<U> b{idx};
-        ngin_reflect(Tag<U>{}, b); // ADL — user describes fields/methods/etc.
+        NginReflect(Tag<U>{}, b); // ADL — user describes fields/methods/etc.
       }
       else if constexpr (HasDescribeWithTypeBuilder<U>)
       {
@@ -398,8 +398,8 @@ namespace NGIN::Reflection
     explicit constexpr Field(FieldHandle h) : m_h(h) {}
 
     [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
-    [[nodiscard]] std::string_view name() const;
-    [[nodiscard]] NGIN::UInt64 type_id() const;
+    [[nodiscard]] std::string_view Name() const;
+    [[nodiscard]] NGIN::UInt64 TypeId() const;
 
     [[nodiscard]] void *GetMut(void *obj) const;
     [[nodiscard]] const void *GetConst(const void *obj) const;
@@ -452,9 +452,9 @@ namespace NGIN::Reflection
     }
 
     // Attributes
-    [[nodiscard]] NGIN::UIntSize attribute_count() const;
-    [[nodiscard]] AttributeView attribute_at(NGIN::UIntSize i) const;
-    [[nodiscard]] std::expected<AttributeView, Error> attribute(std::string_view key) const;
+    [[nodiscard]] NGIN::UIntSize AttributeCount() const;
+    [[nodiscard]] AttributeView AttributeAt(NGIN::UIntSize i) const;
+    [[nodiscard]] std::expected<AttributeView, Error> Attribute(std::string_view key) const;
 
   private:
     FieldHandle m_h{};
@@ -468,8 +468,8 @@ namespace NGIN::Reflection
     explicit constexpr Property(PropertyHandle h) : m_h(h) {}
 
     [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
-    [[nodiscard]] std::string_view name() const;
-    [[nodiscard]] NGIN::UInt64 type_id() const;
+    [[nodiscard]] std::string_view Name() const;
+    [[nodiscard]] NGIN::UInt64 TypeId() const;
 
     [[nodiscard]] Any GetAny(const void *obj) const;
     [[nodiscard]] std::expected<void, Error> SetAny(void *obj, const Any &value) const;
@@ -512,9 +512,9 @@ namespace NGIN::Reflection
     }
 
     // Attributes
-    [[nodiscard]] NGIN::UIntSize attribute_count() const;
-    [[nodiscard]] AttributeView attribute_at(NGIN::UIntSize i) const;
-    [[nodiscard]] std::expected<AttributeView, Error> attribute(std::string_view key) const;
+    [[nodiscard]] NGIN::UIntSize AttributeCount() const;
+    [[nodiscard]] AttributeView AttributeAt(NGIN::UIntSize i) const;
+    [[nodiscard]] std::expected<AttributeView, Error> Attribute(std::string_view key) const;
 
   private:
     PropertyHandle m_h{};
@@ -528,7 +528,7 @@ namespace NGIN::Reflection
     explicit constexpr EnumValue(EnumValueHandle h) : m_h(h) {}
 
     [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
-    [[nodiscard]] std::string_view name() const;
+    [[nodiscard]] std::string_view Name() const;
     [[nodiscard]] Any Value() const;
 
   private:
@@ -606,9 +606,9 @@ namespace NGIN::Reflection
     }
 
     // Attributes
-    [[nodiscard]] NGIN::UIntSize attribute_count() const;
-    [[nodiscard]] AttributeView attribute_at(NGIN::UIntSize i) const;
-    [[nodiscard]] std::expected<AttributeView, Error> attribute(std::string_view key) const;
+    [[nodiscard]] NGIN::UIntSize AttributeCount() const;
+    [[nodiscard]] AttributeView AttributeAt(NGIN::UIntSize i) const;
+    [[nodiscard]] std::expected<AttributeView, Error> Attribute(std::string_view key) const;
 
   private:
     NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
@@ -650,9 +650,9 @@ namespace NGIN::Reflection
     }
 
     // Attributes
-    [[nodiscard]] NGIN::UIntSize attribute_count() const;
-    [[nodiscard]] AttributeView attribute_at(NGIN::UIntSize i) const;
-    [[nodiscard]] std::expected<AttributeView, Error> attribute(std::string_view key) const;
+    [[nodiscard]] NGIN::UIntSize AttributeCount() const;
+    [[nodiscard]] AttributeView AttributeAt(NGIN::UIntSize i) const;
+    [[nodiscard]] std::expected<AttributeView, Error> Attribute(std::string_view key) const;
 
   private:
     FunctionHandle m_h{};
@@ -830,9 +830,9 @@ namespace NGIN::Reflection
     }
 
     // Attributes
-    [[nodiscard]] NGIN::UIntSize attribute_count() const;
-    [[nodiscard]] AttributeView attribute_at(NGIN::UIntSize i) const;
-    [[nodiscard]] std::expected<AttributeView, Error> attribute(std::string_view key) const;
+    [[nodiscard]] NGIN::UIntSize AttributeCount() const;
+    [[nodiscard]] AttributeView AttributeAt(NGIN::UIntSize i) const;
+    [[nodiscard]] std::expected<AttributeView, Error> Attribute(std::string_view key) const;
 
   private:
     ConstructorHandle m_h{};
@@ -843,8 +843,8 @@ namespace NGIN::Reflection
   public:
     AttributeView() = default;
     AttributeView(std::string_view k, const AttrValue *v) : m_key(k), m_val(v) {}
-    [[nodiscard]] std::string_view key() const { return m_key; }
-    [[nodiscard]] const AttrValue &value() const { return *m_val; }
+    [[nodiscard]] std::string_view Key() const { return m_key; }
+    [[nodiscard]] const AttrValue &Value() const { return *m_val; }
 
   private:
     std::string_view m_key{};
@@ -1233,7 +1233,7 @@ namespace NGIN::Reflection
 
   // Optional eager registration helper
   template <class T>
-  inline bool auto_register()
+  inline bool AutoRegister()
   {
     (void)detail::EnsureRegistered<T>();
     return true;

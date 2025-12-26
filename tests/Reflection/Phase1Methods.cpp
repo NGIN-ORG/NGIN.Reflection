@@ -11,14 +11,14 @@ struct Calc {
   int base{0};
   int add(int x) const { return base + x; }
 
-  friend void ngin_reflect(NGIN::Reflection::Tag<Calc>,
+  friend void NginReflect(NGIN::Reflection::Tag<Calc>,
                            NGIN::Reflection::TypeBuilder<Calc> &b) {
-    b.set_name("Demo::Calc");
-    b.field<&Calc::base>("base");
-    b.method<&Calc::add>("add");
-    b.attribute("category", std::string_view{"math"});
-    b.field_attribute<&Calc::base>("min", std::int64_t{0});
-    b.method_attribute<&Calc::add>("group", std::string_view{"arith"});
+    b.SetName("Demo::Calc");
+    b.Field<&Calc::base>("base");
+    b.Method<&Calc::add>("add");
+    b.Attribute("category", std::string_view{"math"});
+    b.FieldAttribute<&Calc::base>("min", std::int64_t{0});
+    b.MethodAttribute<&Calc::add>("group", std::string_view{"arith"});
   }
 };
 } // namespace DemoPhase1M
@@ -77,13 +77,13 @@ TEST_CASE("FieldAndMethodAttributesAreExposed",
 
   auto t = GetType<Calc>();
   auto f = t.GetField("base").value();
-  auto fa = f.attribute("min").value();
-  CHECK(fa.key() == std::string_view{"min"});
-  CHECK(std::holds_alternative<std::int64_t>(fa.value()));
+  auto fa = f.Attribute("min").value();
+  CHECK(fa.Key() == std::string_view{"min"});
+  CHECK(std::holds_alternative<std::int64_t>(fa.Value()));
 
   auto m = t.GetMethod("add").value();
-  auto ma = m.attribute("group").value();
-  CHECK(ma.key() == std::string_view{"group"});
+  auto ma = m.Attribute("group").value();
+  CHECK(ma.Key() == std::string_view{"group"});
 }
 
 TEST_CASE("TypeAttributesAreRetrievable",
@@ -93,9 +93,9 @@ TEST_CASE("TypeAttributesAreRetrievable",
 
   auto t = GetType<Calc>();
   auto av = t.Attribute("category").value();
-  CHECK(av.key() == std::string_view{"category"});
+  CHECK(av.Key() == std::string_view{"category"});
 
-  auto *sval = std::get_if<std::string_view>(&av.value());
+  auto *sval = std::get_if<std::string_view>(&av.Value());
   REQUIRE(sval != nullptr);
   CHECK(*sval == std::string_view{"math"});
 }

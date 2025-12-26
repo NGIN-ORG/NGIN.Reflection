@@ -38,7 +38,7 @@ class SequenceAdapter {
 public:
   using Elem = std::remove_reference_t<decltype(std::declval<Seq&>()[0])>;
   explicit SequenceAdapter(Seq& s) : m_seq(&s) {}
-  NGIN::UIntSize size() const {
+  NGIN::UIntSize Size() const {
     if constexpr (requires(Seq& s){ s.size(); }) {
       return static_cast<NGIN::UIntSize>(m_seq->size());
     } else if constexpr (requires(Seq& s){ s.Size(); }) {
@@ -47,7 +47,7 @@ public:
       return 0;
     }
   }
-  Any element(NGIN::UIntSize i) const { return Any{(*m_seq)[static_cast<std::size_t>(i)]}; }
+  Any Element(NGIN::UIntSize i) const { return Any{(*m_seq)[static_cast<std::size_t>(i)]}; }
 private:
   Seq* m_seq{};
 };
@@ -69,9 +69,9 @@ template<class Tup>
 class TupleAdapter {
 public:
   explicit TupleAdapter(Tup& t) : m_t(&t) {}
-  static constexpr NGIN::UIntSize size() { return static_cast<NGIN::UIntSize>(std::tuple_size<Tup>::value); }
+  static constexpr NGIN::UIntSize Size() { return static_cast<NGIN::UIntSize>(std::tuple_size<Tup>::value); }
   template<std::size_t I>
-  Any get() const { return Any{std::get<I>(*m_t)}; }
+  Any Get() const { return Any{std::get<I>(*m_t)}; }
 private:
   Tup* m_t{};
 };
@@ -93,8 +93,8 @@ template<class Var>
 class VariantAdapter {
 public:
   explicit VariantAdapter(Var& v) : m_v(&v) {}
-  NGIN::UIntSize index() const { return static_cast<NGIN::UIntSize>(m_v->index()); }
-  Any get() const {
+  NGIN::UIntSize Index() const { return static_cast<NGIN::UIntSize>(m_v->index()); }
+  Any Get() const {
     Any out = Any::MakeVoid();
     std::visit([&](auto&& val){ out = Any{val}; }, *m_v);
     return out;
@@ -121,8 +121,8 @@ class OptionalAdapter {
 public:
   using Elem = typename Opt::value_type;
   explicit OptionalAdapter(Opt& o) : m_opt(&o) {}
-  bool has_value() const { return m_opt->has_value(); }
-  Any value() const { return m_opt->has_value() ? Any{m_opt->value()} : Any::MakeVoid(); }
+  bool HasValue() const { return m_opt->has_value(); }
+  Any Value() const { return m_opt->has_value() ? Any{m_opt->value()} : Any::MakeVoid(); }
 private:
   Opt* m_opt{};
 };
@@ -149,13 +149,13 @@ public:
   using Key = typename Map::key_type;
   using Mapped = typename Map::mapped_type;
   explicit MapAdapter(Map& m) : m_map(&m) {}
-  NGIN::UIntSize size() const { return static_cast<NGIN::UIntSize>(m_map->size()); }
-  bool contains_key(const Any& k) const {
+  NGIN::UIntSize Size() const { return static_cast<NGIN::UIntSize>(m_map->size()); }
+  bool ContainsKey(const Any& k) const {
     auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
     if (!key) return false;
     return m_map->find(key.value()) != m_map->end();
   }
-  Any find_value(const Any& k) const {
+  Any FindValue(const Any& k) const {
     auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
     if (!key) return Any::MakeVoid();
     auto it = m_map->find(key.value());
@@ -178,13 +178,13 @@ public:
   using Key = K;
   using Mapped = V;
   explicit FlatHashMapAdapter(NGIN::Containers::FlatHashMap<K, V>& m) : m_map(&m) {}
-  NGIN::UIntSize size() const { return m_map->Size(); }
-  bool contains_key(const Any& k) const {
+  NGIN::UIntSize Size() const { return m_map->Size(); }
+  bool ContainsKey(const Any& k) const {
     auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
     if (!key) return false;
     return m_map->GetPtr(key.value()) != nullptr;
   }
-  Any find_value(const Any& k) const {
+  Any FindValue(const Any& k) const {
     auto key = NGIN::Reflection::detail::ConvertAny<Key>(k);
     if (!key) return Any::MakeVoid();
     if (auto* p = m_map->GetPtr(key.value())) return Any{*p};
@@ -203,13 +203,13 @@ class OptionalLikeAdapter {
 public:
   using Elem = typename Opt::value_type;
   explicit OptionalLikeAdapter(Opt& o) : m_opt(&o) {}
-  bool has_value() const {
+  bool HasValue() const {
     if constexpr (requires(const Opt& o){ o.has_value(); }) return m_opt->has_value();
     else if constexpr (requires(const Opt& o){ o.HasValue(); }) return m_opt->HasValue();
     else return false;
   }
-  Any value() const {
-    if (!has_value()) return Any::MakeVoid();
+  Any Value() const {
+    if (!HasValue()) return Any::MakeVoid();
     if constexpr (requires(const Opt& o){ o.value(); }) return Any{m_opt->value()};
     else if constexpr (requires(const Opt& o){ o.Value(); }) return Any{m_opt->Value()};
     else return Any::MakeVoid();

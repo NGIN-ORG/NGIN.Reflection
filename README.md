@@ -16,10 +16,10 @@ struct User {
   int id{};
   float score{};
 
-  friend void ngin_reflect(NGIN::Reflection::Tag<User>, NGIN::Reflection::TypeBuilder<User> &b) {
-    b.set_name("Demo::User");
-    b.field<&User::id>("id");
-    b.field<&User::score>("score");
+  friend void NginReflect(NGIN::Reflection::Tag<User>, NGIN::Reflection::TypeBuilder<User> &b) {
+    b.SetName("Demo::User");
+    b.Field<&User::id>("id");
+    b.Field<&User::score>("score");
   }
 };
 
@@ -38,10 +38,10 @@ struct Math {
   int    mul(int,int) const { /*...*/ }
   double mul(int,double) const { /*...*/ }
   float  mul(float,float) const { /*...*/ }
-  friend void ngin_reflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b) {
-    b.method<static_cast<int    (Math::*)(int,int)    const>(&Math::mul)>("mul");
-    b.method<static_cast<double (Math::*)(int,double) const>(&Math::mul)>("mul");
-    b.method<static_cast<float  (Math::*)(float,float)const>(&Math::mul)>("mul");
+  friend void NginReflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b) {
+    b.Method<static_cast<int    (Math::*)(int,int)    const>(&Math::mul)>("mul");
+    b.Method<static_cast<double (Math::*)(int,double) const>(&Math::mul)>("mul");
+    b.Method<static_cast<float  (Math::*)(float,float)const>(&Math::mul)>("mul");
   }
 };
 
@@ -65,13 +65,13 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
 
 - Types: lookup by qualified name or TypeId; size/alignment; `GetType<T>()` registers, `TryGetType<T>()` and `FindType(name)` do not.
 - Fields: enumerate/find (`GetField`, `FindField`); GetMut/GetConst; typed `Get<T>(obj)`/`Set(obj, value)`; `GetAny`/`SetAny`; field attributes.
-- Properties: getter/setter registration with `property<Getter, Setter>()`; read-only when no setter is available.
+- Properties: getter/setter registration with `Property<Getter, Setter>()`; read-only when no setter is available.
 - Methods: enumerate/find (`GetMethod`, `FindMethods`); overload resolution with promotions/conversions; method attributes.
-- Functions: register free/static functions via `RegisterFunction` or `TypeBuilder::static_method`; resolve/invoke with the same overload rules.
-- Enums: register name/value pairs with `enum_value`, parse from string, stringify from value, and query underlying type id.
-- Bases: register base types with `base<BaseT>()`, query base list, and use upcast/downcast hooks when provided.
+- Functions: register free/static functions via `RegisterFunction` or `TypeBuilder::StaticMethod`; resolve/invoke with the same overload rules.
+- Enums: register name/value pairs with `EnumValue`, parse from string, stringify from value, and query underlying type id.
+- Bases: register base types with `Base<BaseT>()`, query base list, and use Upcast/Downcast hooks when provided.
 - Typed APIs: `ResolveMethod<R, A...>()` or `ResolveMethod<R(Args...)>()`, `Method::InvokeAs<R>(obj, args...)`, `Type::InvokeAs<R, A...>(name, obj, args...)`.
-- Constructors: default construction and registered parameterized constructors via `TypeBuilder::constructor<Args...>()` + `Type::Construct(...)` and `DefaultConstruct()`.
+- Constructors: default construction and registered parameterized constructors via `TypeBuilder::Constructor<Args...>()` + `Type::Construct(...)` and `DefaultConstruct()`.
 - Attributes: on type/field/method with `std::variant<bool, int64_t, double, string_view, UInt64>`.
 - Any: 32B SBO, heap fallback, copy/move, `Cast<T>()`, `GetTypeId()`, `Size()`, `Data()`.
 - Adapters: sequence (std::vector, `NGIN::Containers::Vector`), tuple, variant, optional‑like, std::map/unordered_map, and `NGIN::Containers::FlatHashMap`.
@@ -86,8 +86,8 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
   ```cpp
   struct Foo {
     int x{};
-    friend void ngin_reflect(NGIN::Reflection::Tag<Foo>, NGIN::Reflection::TypeBuilder<Foo> &b) {
-      b.field<&Foo::x>("x");
+    friend void NginReflect(NGIN::Reflection::Tag<Foo>, NGIN::Reflection::TypeBuilder<Foo> &b) {
+      b.Field<&Foo::x>("x");
     }
   };
   ```
@@ -98,9 +98,9 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
   namespace NGIN::Reflection {
   template<> struct Describe<std::pair<int,int>> {
     static void Do(TypeBuilder<std::pair<int,int>>& b) {
-      b.set_name("std::pair<int,int>");
-      b.field<&std::pair<int,int>::first>("first");
-      b.field<&std::pair<int,int>::second>("second");
+      b.SetName("std::pair<int,int>");
+      b.Field<&std::pair<int,int>::first>("first");
+      b.Field<&std::pair<int,int>::second>("second");
     }
   };
   } // namespace NGIN::Reflection
@@ -111,18 +111,18 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
 - Overload disambiguation: explicitly cast overloaded member pointers to the exact signature when registering.
 
   ```cpp
-  b.method<static_cast<int (Math::*)(int,int) const>(&Math::mul)>("mul");
-  b.method<static_cast<double (Math::*)(int,double) const>(&Math::mul)>("mul");
-  b.method<static_cast<float (Math::*)(float,float) const>(&Math::mul)>("mul");
+  b.Method<static_cast<int (Math::*)(int,int) const>(&Math::mul)>("mul");
+  b.Method<static_cast<double (Math::*)(int,double) const>(&Math::mul)>("mul");
+  b.Method<static_cast<float (Math::*)(float,float) const>(&Math::mul)>("mul");
   ```
 
 - Const vs non-const: register each variant explicitly; cv-qualification is part of the type.
-- Access rules: inline friend grants private/protected access; free `ngin_reflect` and `Describe<T>` only see public members.
+- Access rules: inline friend grants private/protected access; free `NginReflect` and `Describe<T>` only see public members.
 
 Notes:
 
 - Cv/ref normalization: `T`, `const T&`, and `T&&` map to one canonical type record.
-- Name interning: names passed to `set_name()` and TypeBuilder APIs are interned; passing temporaries or literals is safe.
+- Name interning: names passed to `SetName()` and TypeBuilder APIs are interned; passing temporaries or literals is safe.
 
 ## Non‑Goals
 
@@ -152,7 +152,7 @@ See docs/Architecture.md for full details.
 
 ## TypeBuilder DSL and ABI Blob
 
-1) `GetType<T>()` (or `auto_register<T>()`) ensures T is registered, invoking ADL `ngin_reflect(Tag<T>, TypeBuilder<T>&)` or `Describe<T>::Do`; `TryGetType<T>()`/`FindType(name)` do not register.
+1) `GetType<T>()` (or `AutoRegister<T>()`) ensures T is registered, invoking ADL `NginReflect(Tag<T>, TypeBuilder<T>&)` or `Describe<T>::Do`; `TryGetType<T>()`/`FindType(name)` do not register.
 2) `TypeBuilder<T>` writes runtime descriptors into the process-local registry (types, fields, methods, ctors, attributes).
 3) ABI export packs the registry into a contiguous blob with a string table and optional invoke tables.
 4) `MergeRegistryV1` validates and appends types by TypeId, reporting conflicts.
@@ -180,10 +180,10 @@ Phase 1 — MVP (single-module, no DLL) — implemented
 
 - Public headers: tags, handles (`Type`, `Field`, `Method`), `TypeBuilder<T>`, `GetType<T>()`, `GetType(name)`.
 - Registry: process-local, populated on demand; fast name/TypeId -> Type lookup; name interning.
-- Fields: reflect public data members; load/store thunks; `GetMut/GetConst`; `Field::GetAny/SetAny`; field attributes.
+- Fields: reflect public data members; `Load`/`Store` thunks; `GetMut/GetConst`; `Field::GetAny/SetAny`; field attributes.
 - Methods: register const/non-const member functions (explicit member pointer signature for overloads); `GetMethod`, `ResolveMethod` (overload set + scoring); method attributes.
 - Attributes: type/field/method storage and lookup.
-- Any: SBO 32B + heap fallback; copy supported; raw data access; type_id/size tracking.
+- Any: SBO 32B + heap fallback; copy supported; raw data access; TypeId/Size tracking.
 - Adapters: basic sequence (std::vector, `NGIN::Containers::Vector`), tuple, variant.
 - Examples and benchmarks: QuickStart, Adapters, Methods; reflection benchmarks.
 
@@ -205,7 +205,7 @@ Phase 4 — Attributes & Codegen Hooks
 
 - Scanner and codegen hooks (attribute storage is already implemented in the runtime).
 - `[[using ngin: reflect, ...]]` vendor attributes consumed by a separate scanner tool.
-- `ngin-reflect-scan` prototype (libclang‑based) generating ADL friend + `auto_register` glue headers.
+- `ngin-reflect-scan` prototype (libclang‑based) generating ADL friend + `AutoRegister` glue headers.
 
 Phase 5 — Performance & Memory Polish
 

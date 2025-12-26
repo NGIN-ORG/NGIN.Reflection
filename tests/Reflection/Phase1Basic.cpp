@@ -9,19 +9,19 @@ struct User {
   int id{};
   float score{};
 
-  friend void ngin_reflect(NGIN::Reflection::Tag<User>,
+  friend void NginReflect(NGIN::Reflection::Tag<User>,
                            NGIN::Reflection::TypeBuilder<User> &b) {
-    b.field<&User::id>("id");
-    b.field<&User::score>("score");
+    b.Field<&User::id>("id");
+    b.Field<&User::score>("score");
   }
 };
 
 struct Named {
   int value{};
-  friend void ngin_reflect(NGIN::Reflection::Tag<Named>,
+  friend void NginReflect(NGIN::Reflection::Tag<Named>,
                            NGIN::Reflection::TypeBuilder<Named> &b) {
-    b.set_name("My::Named");
-    b.field<&Named::value>("v");
+    b.SetName("My::Named");
+    b.Field<&Named::value>("v");
   }
 };
 } // namespace DemoPhase1
@@ -39,8 +39,8 @@ TEST_CASE("GetTypeInfersNamesAndFields", "[reflection][Phase1Basic]") {
         std::string_view{NGIN::Meta::TypeName<User>::qualifiedName});
   CHECK(t.FieldCount() == NGIN::UIntSize{2});
 
-  CHECK(t.FieldAt(0).name() == std::string_view{"id"});
-  CHECK(t.FieldAt(1).name() == std::string_view{"score"});
+  CHECK(t.FieldAt(0).Name() == std::string_view{"id"});
+  CHECK(t.FieldAt(1).Name() == std::string_view{"score"});
 
   User u{};
   *static_cast<int *>(t.FieldAt(0).GetMut(&u)) = 42;

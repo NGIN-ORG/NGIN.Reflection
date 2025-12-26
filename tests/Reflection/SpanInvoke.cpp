@@ -7,10 +7,10 @@
 namespace SpanDemo {
 struct C {
   int inc(int v) const { return v + 1; }
-  friend void ngin_reflect(NGIN::Reflection::Tag<C>,
+  friend void NginReflect(NGIN::Reflection::Tag<C>,
                            NGIN::Reflection::TypeBuilder<C> &b) {
-    b.set_name("SpanDemo::C");
-    b.method<&C::inc>("inc");
+    b.SetName("SpanDemo::C");
+    b.Method<&C::inc>("inc");
   }
 };
 } // namespace SpanDemo

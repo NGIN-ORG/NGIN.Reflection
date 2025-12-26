@@ -16,11 +16,11 @@ namespace BenchDemo
     int n{0};
     Vec2 p{1.0f, 2.0f};
     int add(int v) const { return n + v; }
-    friend void ngin_reflect(Reflection::Tag<Obj>, Reflection::TypeBuilder<Obj> &b)
+    friend void NginReflect(Reflection::Tag<Obj>, Reflection::TypeBuilder<Obj> &b)
     {
-      b.field<&Obj::n>("n");
-      b.field<&Obj::p>("p");
-      b.method<&Obj::add>("add");
+      b.Field<&Obj::n>("n");
+      b.Field<&Obj::p>("p");
+      b.Method<&Obj::add>("add");
     }
   };
 }

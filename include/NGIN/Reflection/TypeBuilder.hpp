@@ -29,7 +29,7 @@ namespace NGIN::Reflection
     explicit TypeBuilder(NGIN::UInt32 typeIndex) : m_index(typeIndex) {}
 
     // Optional name overrides (qualified or unqualified). If not set, defaults to Meta::TypeName<T>.
-    TypeBuilder &set_name(std::string_view qualified)
+    TypeBuilder &SetName(std::string_view qualified)
     {
       auto &reg = detail::GetRegistry();
       auto id = detail::InternNameId(qualified);
@@ -40,9 +40,9 @@ namespace NGIN::Reflection
       return *this;
     }
 
-    // Add a public data member as a field; name optional and auto-derived if omitted.
+    // Add a public data member as a Field; name optional and auto-derived if omitted.
     template <auto MemberPtr>
-    TypeBuilder &field(std::string_view name = {})
+    TypeBuilder &Field(std::string_view name = {})
     {
       using MemberT = detail::MemberTypeT<MemberPtr>;
       auto &reg = detail::GetRegistry();
@@ -60,56 +60,56 @@ namespace NGIN::Reflection
       f.sizeBytes = sizeof(MemberT);
       f.GetMut = &detail::FieldGetterMut<MemberPtr>;
       f.GetConst = &detail::FieldGetterConst<MemberPtr>;
-      f.load = &detail::FieldLoad<MemberPtr>;
-      f.store = &detail::FieldStore<MemberPtr>;
+      f.Load = &detail::FieldLoad<MemberPtr>;
+      f.Store = &detail::FieldStore<MemberPtr>;
       reg.types[m_index].fields.PushBack(std::move(f));
-      // update field index map
+      // update Field index map
       const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].fields.Size() - 1);
       reg.types[m_index].fieldIndex.Insert(reg.types[m_index].fields[newIdx].nameId, newIdx);
       return *this;
     }
 
-    // Add a const/non-const member method. Name required.
+    // Add a const/non-const member Method. Name required.
     template <auto MemFn>
-    TypeBuilder &method(std::string_view name);
+    TypeBuilder &Method(std::string_view name);
 
     // Register a static member function as a global function.
     template <auto Fn>
-    TypeBuilder &static_method(std::string_view name);
+    TypeBuilder &StaticMethod(std::string_view name);
 
-    // Add a property using getter and optional setter.
+    // Add a Property using getter and optional setter.
     template <auto Getter>
-    TypeBuilder &property(std::string_view name);
+    TypeBuilder &Property(std::string_view name);
 
     template <auto Getter, auto Setter>
-    TypeBuilder &property(std::string_view name);
+    TypeBuilder &Property(std::string_view name);
 
     // Add an enum value (T must be an enum type).
-    TypeBuilder &enum_value(std::string_view name, T value);
+    TypeBuilder &EnumValue(std::string_view name, T value);
 
-    // Add a constructor descriptor for T with parameter types A...
+    // Add a Constructor descriptor for T with parameter types A...
     template <class... A>
-    TypeBuilder &constructor();
+    TypeBuilder &Constructor();
 
     // Register a base type and upcast hooks.
     template <class BaseT>
-    TypeBuilder &base();
+    TypeBuilder &Base();
 
     // Register a base type with a custom downcast hook.
     template <class BaseT, auto Downcast>
-    TypeBuilder &base();
+    TypeBuilder &Base();
 
-    // Attach a typed attribute (type-level)
-    TypeBuilder &attribute(std::string_view key, const AttrValue &value)
+    // Attach a typed Attribute (type-level)
+    TypeBuilder &Attribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
       reg.types[m_index].attributes.PushBack(AttributeDesc{key, value});
       return *this;
     }
 
-    // Attach attribute to a specific field by member pointer.
+    // Attach Attribute to a specific Field by member pointer.
     template <auto MemberPtr>
-    TypeBuilder &field_attribute(std::string_view key, const AttrValue &value)
+    TypeBuilder &FieldAttribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
       auto *fn = &detail::FieldGetterMut<MemberPtr>;
@@ -125,16 +125,16 @@ namespace NGIN::Reflection
       return *this;
     }
 
-    // Attach attribute to a specific property by getter.
+    // Attach Attribute to a specific Property by getter.
     template <auto Getter>
-    TypeBuilder &property_attribute(std::string_view key, const AttrValue &value)
+    TypeBuilder &PropertyAttribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
       auto *fn = &detail::PropertyGet<Getter>;
       auto &props = reg.types[m_index].properties;
       for (auto i = NGIN::UIntSize{0}; i < props.Size(); ++i)
       {
-        if (props[i].get == fn)
+        if (props[i].Get == fn)
         {
           props[i].attributes.PushBack(AttributeDesc{key, value});
           break;
@@ -143,12 +143,12 @@ namespace NGIN::Reflection
       return *this;
     }
 
-    // Attach attribute to a specific method by member function pointer.
+    // Attach Attribute to a specific Method by member function pointer.
     template <auto MemFn>
-    TypeBuilder &method_attribute(std::string_view key, const AttrValue &value);
+    TypeBuilder &MethodAttribute(std::string_view key, const AttrValue &value);
 
     // No-op in Phase 1; present for API symmetry.
-    constexpr void build() const noexcept {}
+    constexpr void Build() const noexcept {}
 
   private:
     NGIN::UInt32 m_index{0};
@@ -393,7 +393,7 @@ namespace NGIN::Reflection
     }
 
     template <std::size_t I, class Tuple>
-    inline NGIN::UInt64 param_type_id()
+    inline NGIN::UInt64 ParamTypeId()
     {
       using Arg = std::remove_cv_t<std::remove_reference_t<std::tuple_element_t<I, Tuple>>>;
       auto psv = NGIN::Meta::TypeName<Arg>::qualifiedName;
@@ -401,15 +401,15 @@ namespace NGIN::Reflection
     }
 
     template <class Tuple, std::size_t... I>
-    inline void push_param_ids(MethodRuntimeDesc &m, std::index_sequence<I...>)
+    inline void PushParamIds(MethodRuntimeDesc &m, std::index_sequence<I...>)
     {
-      (m.paramTypeIds.PushBack(param_type_id<I, Tuple>()), ...);
+      (m.paramTypeIds.PushBack(ParamTypeId<I, Tuple>()), ...);
     }
 
     template <class Tuple, std::size_t... I>
-    inline void push_ctor_param_ids(NGIN::Containers::Vector<NGIN::UInt64> &v, std::index_sequence<I...>)
+    inline void PushCtorParamIds(NGIN::Containers::Vector<NGIN::UInt64> &v, std::index_sequence<I...>)
     {
-      (v.PushBack(param_type_id<I, Tuple>()), ...);
+      (v.PushBack(ParamTypeId<I, Tuple>()), ...);
     }
 
     template <class C, class R, class... A>
@@ -613,7 +613,7 @@ namespace NGIN::Reflection
 
   template <class T>
   template <auto MemFn>
-  inline TypeBuilder<T> &TypeBuilder<T>::method(std::string_view name)
+  inline TypeBuilder<T> &TypeBuilder<T>::Method(std::string_view name)
   {
     using Traits = detail::MethodTraits<decltype(MemFn)>;
     static_assert(std::is_same_v<typename Traits::Class, T>, "Method must belong to T");
@@ -637,7 +637,7 @@ namespace NGIN::Reflection
     if constexpr (N > 0)
     {
       using Tuple = typename Traits::Args;
-      detail::push_param_ids<Tuple>(m, std::make_index_sequence<N>{});
+      detail::PushParamIds<Tuple>(m, std::make_index_sequence<N>{});
     }
     // Invoker
     m.Invoke = &Traits::template Invoke<MemFn>;
@@ -662,9 +662,9 @@ namespace NGIN::Reflection
 
   template <class T>
   template <auto Fn>
-  inline TypeBuilder<T> &TypeBuilder<T>::static_method(std::string_view name)
+  inline TypeBuilder<T> &TypeBuilder<T>::StaticMethod(std::string_view name)
   {
-    static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "static_method requires function pointer");
+    static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "StaticMethod requires function pointer");
     (void)RegisterFunction<Fn>(name);
     return *this;
   }
@@ -672,7 +672,7 @@ namespace NGIN::Reflection
   // ==== Property registration ====
   template <class T>
   template <auto Getter>
-  inline TypeBuilder<T> &TypeBuilder<T>::property(std::string_view name)
+  inline TypeBuilder<T> &TypeBuilder<T>::Property(std::string_view name)
   {
     using Traits = detail::GetterTraits<decltype(Getter)>;
     static_assert(std::is_same_v<typename Traits::Class, T>, "Property getter must belong to T");
@@ -685,10 +685,10 @@ namespace NGIN::Reflection
     using Value = std::remove_cv_t<std::remove_reference_t<Ret>>;
     auto sv = NGIN::Meta::TypeName<Value>::qualifiedName;
     p.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-    p.get = &detail::PropertyGet<Getter>;
+    p.Get = &detail::PropertyGet<Getter>;
     if constexpr (std::is_lvalue_reference_v<Ret> && !std::is_const_v<std::remove_reference_t<Ret>>)
     {
-      p.set = &detail::PropertySetFromGetter<Getter>;
+      p.Set = &detail::PropertySetFromGetter<Getter>;
     }
     reg.types[m_index].properties.PushBack(std::move(p));
     const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].properties.Size() - 1);
@@ -698,7 +698,7 @@ namespace NGIN::Reflection
 
   template <class T>
   template <auto Getter, auto Setter>
-  inline TypeBuilder<T> &TypeBuilder<T>::property(std::string_view name)
+  inline TypeBuilder<T> &TypeBuilder<T>::Property(std::string_view name)
   {
     using GetTraits = detail::GetterTraits<decltype(Getter)>;
     using SetTraits = detail::SetterTraits<decltype(Setter)>;
@@ -713,8 +713,8 @@ namespace NGIN::Reflection
     using Value = std::remove_cv_t<std::remove_reference_t<Ret>>;
     auto sv = NGIN::Meta::TypeName<Value>::qualifiedName;
     p.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-    p.get = &detail::PropertyGet<Getter>;
-    p.set = &detail::PropertySet<Setter>;
+    p.Get = &detail::PropertyGet<Getter>;
+    p.Set = &detail::PropertySet<Setter>;
     reg.types[m_index].properties.PushBack(std::move(p));
     const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].properties.Size() - 1);
     reg.types[m_index].propertyIndex.Insert(reg.types[m_index].properties[newIdx].nameId, newIdx);
@@ -722,9 +722,9 @@ namespace NGIN::Reflection
   }
 
   template <class T>
-  inline TypeBuilder<T> &TypeBuilder<T>::enum_value(std::string_view name, T value)
+  inline TypeBuilder<T> &TypeBuilder<T>::EnumValue(std::string_view name, T value)
   {
-    static_assert(std::is_enum_v<T>, "enum_value requires an enum type");
+    static_assert(std::is_enum_v<T>, "EnumValue requires an enum type");
     auto &reg = detail::GetRegistry();
     auto &info = reg.types[m_index].enumInfo;
     if (!info.isEnum)
@@ -734,8 +734,8 @@ namespace NGIN::Reflection
       info.isSigned = std::is_signed_v<Under>;
       auto sv = NGIN::Meta::TypeName<Under>::qualifiedName;
       info.underlyingTypeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-      info.toUnsigned = &detail::EnumToUnsigned<T>;
-      info.toSigned = &detail::EnumToSigned<T>;
+      info.ToUnsigned = &detail::EnumToUnsigned<T>;
+      info.ToSigned = &detail::EnumToSigned<T>;
     }
     detail::EnumValueRuntimeDesc ev{};
     auto nameId = detail::InternNameId(name);
@@ -762,7 +762,7 @@ namespace NGIN::Reflection
 
   template <class T>
   template <class BaseT>
-  inline TypeBuilder<T> &TypeBuilder<T>::base()
+  inline TypeBuilder<T> &TypeBuilder<T>::Base()
   {
     static_assert(std::is_base_of_v<BaseT, T>, "BaseT must be a base of T");
     auto &reg = detail::GetRegistry();
@@ -770,8 +770,8 @@ namespace NGIN::Reflection
     detail::BaseRuntimeDesc b{};
     b.baseTypeIndex = baseIndex;
     b.baseTypeId = reg.types[baseIndex].typeId;
-    b.upcast = &detail::Upcast<T, BaseT>;
-    b.upcastConst = &detail::UpcastConst<T, BaseT>;
+    b.Upcast = &detail::Upcast<T, BaseT>;
+    b.UpcastConst = &detail::UpcastConst<T, BaseT>;
     reg.types[m_index].bases.PushBack(std::move(b));
     const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].bases.Size() - 1);
     reg.types[m_index].baseIndex.Insert(reg.types[m_index].bases[newIdx].baseTypeId, newIdx);
@@ -780,7 +780,7 @@ namespace NGIN::Reflection
 
   template <class T>
   template <class BaseT, auto Downcast>
-  inline TypeBuilder<T> &TypeBuilder<T>::base()
+  inline TypeBuilder<T> &TypeBuilder<T>::Base()
   {
     static_assert(std::is_base_of_v<BaseT, T>, "BaseT must be a base of T");
     using Traits = detail::DowncastTraits<decltype(Downcast)>;
@@ -791,12 +791,12 @@ namespace NGIN::Reflection
     detail::BaseRuntimeDesc b{};
     b.baseTypeIndex = baseIndex;
     b.baseTypeId = reg.types[baseIndex].typeId;
-    b.upcast = &detail::Upcast<T, BaseT>;
-    b.upcastConst = &detail::UpcastConst<T, BaseT>;
+    b.Upcast = &detail::Upcast<T, BaseT>;
+    b.UpcastConst = &detail::UpcastConst<T, BaseT>;
     if constexpr (Traits::IsConst)
-      b.downcastConst = &detail::DowncastConst<Downcast>;
+      b.DowncastConst = &detail::DowncastConst<Downcast>;
     else
-      b.downcast = &detail::Downcast<Downcast>;
+      b.Downcast = &detail::Downcast<Downcast>;
     reg.types[m_index].bases.PushBack(std::move(b));
     const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].bases.Size() - 1);
     reg.types[m_index].baseIndex.Insert(reg.types[m_index].bases[newIdx].baseTypeId, newIdx);
@@ -806,16 +806,16 @@ namespace NGIN::Reflection
   // ==== Constructor registration ====
   template <class T>
   template <class... A>
-  inline TypeBuilder<T> &TypeBuilder<T>::constructor()
+  inline TypeBuilder<T> &TypeBuilder<T>::Constructor()
   {
     auto &reg = detail::GetRegistry();
     detail::CtorRuntimeDesc c{};
     if constexpr (sizeof...(A) > 0)
     {
       using Tuple = std::tuple<A...>;
-      detail::push_ctor_param_ids<Tuple>(c.paramTypeIds, std::make_index_sequence<sizeof...(A)>{});
+      detail::PushCtorParamIds<Tuple>(c.paramTypeIds, std::make_index_sequence<sizeof...(A)>{});
     }
-    c.construct = [](const Any *args, NGIN::UIntSize count) -> std::expected<Any, Error>
+    c.Construct = [](const Any *args, NGIN::UIntSize count) -> std::expected<Any, Error>
     {
       if (count != sizeof...(A))
         return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
@@ -845,10 +845,10 @@ namespace NGIN::Reflection
     return *this;
   }
 
-  // Implement method_attribute after MethodTraits are defined
+  // Implement MethodAttribute after MethodTraits are defined
   template <class T>
   template <auto MemFn>
-  inline TypeBuilder<T> &TypeBuilder<T>::method_attribute(std::string_view key, const AttrValue &value)
+  inline TypeBuilder<T> &TypeBuilder<T>::MethodAttribute(std::string_view key, const AttrValue &value)
   {
     using Traits = detail::MethodTraits<decltype(MemFn)>;
     auto &reg = detail::GetRegistry();
@@ -889,7 +889,7 @@ namespace NGIN::Reflection
     if constexpr (Traits::Arity > 0)
     {
       using Tuple = typename Traits::Args;
-      detail::push_ctor_param_ids<Tuple>(f.paramTypeIds, std::make_index_sequence<Traits::Arity>{});
+      detail::PushCtorParamIds<Tuple>(f.paramTypeIds, std::make_index_sequence<Traits::Arity>{});
     }
     f.Invoke = &Traits::template Invoke<Fn>;
     f.InvokeExact = &Traits::template InvokeExact<Fn>;

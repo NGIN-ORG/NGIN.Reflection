@@ -11,11 +11,11 @@ struct H {
   int f(int) const { return 1; }
   long f(long) const { return 2; }
   double f(double) const { return 3.0; }
-  friend void ngin_reflect(NGIN::Reflection::Tag<H>,
+  friend void NginReflect(NGIN::Reflection::Tag<H>,
                            NGIN::Reflection::TypeBuilder<H> &b) {
-    b.method<static_cast<int (H::*)(int) const>(&H::f)>("f");
-    b.method<static_cast<long (H::*)(long) const>(&H::f)>("f");
-    b.method<static_cast<double (H::*)(double) const>(&H::f)>("f");
+    b.Method<static_cast<int (H::*)(int) const>(&H::f)>("f");
+    b.Method<static_cast<long (H::*)(long) const>(&H::f)>("f");
+    b.Method<static_cast<double (H::*)(double) const>(&H::f)>("f");
   }
 };
 } // namespace SmallDemo

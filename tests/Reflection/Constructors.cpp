@@ -12,13 +12,13 @@ namespace CtorDemo
     int y{0};
     Point() = default;
     Point(int a, int b) : x(a), y(b) {}
-    friend void ngin_reflect(NGIN::Reflection::Tag<Point>,
+    friend void NginReflect(NGIN::Reflection::Tag<Point>,
                              NGIN::Reflection::TypeBuilder<Point> &b)
     {
-      b.set_name("CtorDemo::Point");
-      b.field<&Point::x>("x");
-      b.field<&Point::y>("y");
-      b.constructor<int, int>();
+      b.SetName("CtorDemo::Point");
+      b.Field<&Point::x>("x");
+      b.Field<&Point::y>("y");
+      b.Constructor<int, int>();
     }
   };
 } // namespace CtorDemo

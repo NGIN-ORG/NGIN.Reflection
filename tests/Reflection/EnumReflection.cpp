@@ -15,12 +15,12 @@ namespace EnumDemo
     Blue = 4
   };
 
-  inline void ngin_reflect(NGIN::Reflection::Tag<Color>, NGIN::Reflection::TypeBuilder<Color> &b)
+  inline void NginReflect(NGIN::Reflection::Tag<Color>, NGIN::Reflection::TypeBuilder<Color> &b)
   {
-    b.set_name("EnumDemo::Color");
-    b.enum_value("Red", Color::Red);
-    b.enum_value("Green", Color::Green);
-    b.enum_value("Blue", Color::Blue);
+    b.SetName("EnumDemo::Color");
+    b.EnumValue("Red", Color::Red);
+    b.EnumValue("Green", Color::Green);
+    b.EnumValue("Blue", Color::Blue);
   }
 } // namespace EnumDemo
 

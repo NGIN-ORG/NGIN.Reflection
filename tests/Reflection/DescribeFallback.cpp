@@ -12,9 +12,9 @@ namespace NGIN::Reflection
   {
     static void Do(TypeBuilder<std::pair<int, int>> &b)
     {
-      b.set_name("std::pair<int,int>");
-      b.field<&std::pair<int, int>::first>("first");
-      b.field<&std::pair<int, int>::second>("second");
+      b.SetName("std::pair<int,int>");
+      b.Field<&std::pair<int, int>::first>("first");
+      b.Field<&std::pair<int, int>::second>("second");
     }
   };
 } // namespace NGIN::Reflection

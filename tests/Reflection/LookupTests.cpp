@@ -10,24 +10,24 @@ struct Unregistered {
 };
 
 struct Named {
-  friend void ngin_reflect(NGIN::Reflection::Tag<Named>, NGIN::Reflection::TypeBuilder<Named> &b) {
-    b.set_name("Lookup::Named");
+  friend void NginReflect(NGIN::Reflection::Tag<Named>, NGIN::Reflection::TypeBuilder<Named> &b) {
+    b.SetName("Lookup::Named");
   }
 };
 
 struct WithField {
   int value{};
-  friend void ngin_reflect(NGIN::Reflection::Tag<WithField>, NGIN::Reflection::TypeBuilder<WithField> &b) {
-    b.field<&WithField::value>("value");
+  friend void NginReflect(NGIN::Reflection::Tag<WithField>, NGIN::Reflection::TypeBuilder<WithField> &b) {
+    b.Field<&WithField::value>("value");
   }
 };
 
 struct WithMethods {
   int mul(int a, int b) const { return a * b; }
   float mul(float a, float b) const { return a * b; }
-  friend void ngin_reflect(NGIN::Reflection::Tag<WithMethods>, NGIN::Reflection::TypeBuilder<WithMethods> &b) {
-    b.method<static_cast<int (WithMethods::*)(int, int) const>(&WithMethods::mul)>("mul");
-    b.method<static_cast<float (WithMethods::*)(float, float) const>(&WithMethods::mul)>("mul");
+  friend void NginReflect(NGIN::Reflection::Tag<WithMethods>, NGIN::Reflection::TypeBuilder<WithMethods> &b) {
+    b.Method<static_cast<int (WithMethods::*)(int, int) const>(&WithMethods::mul)>("mul");
+    b.Method<static_cast<float (WithMethods::*)(float, float) const>(&WithMethods::mul)>("mul");
   }
 };
 } // namespace LookupDemo
@@ -66,7 +66,7 @@ TEST_CASE("FindFieldReturnsOptional", "[reflection][Lookup]") {
   auto t = GetType<WithField>();
   auto present = t.FindField("value");
   REQUIRE(present.has_value());
-  CHECK(present->name() == std::string_view{"value"});
+  CHECK(present->Name() == std::string_view{"value"});
 
   CHECK_FALSE(t.FindField("missing").has_value());
 }

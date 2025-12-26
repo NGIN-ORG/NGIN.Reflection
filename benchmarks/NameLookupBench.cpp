@@ -29,28 +29,28 @@ namespace LookupBench
     int a18{};
     int a19{};
 
-    friend void ngin_reflect(NGIN::Reflection::Tag<ManyFields>, NGIN::Reflection::TypeBuilder<ManyFields> &b)
+    friend void NginReflect(NGIN::Reflection::Tag<ManyFields>, NGIN::Reflection::TypeBuilder<ManyFields> &b)
     {
-      b.field<&ManyFields::a0>("a0");
-      b.field<&ManyFields::a1>("a1");
-      b.field<&ManyFields::a2>("a2");
-      b.field<&ManyFields::a3>("a3");
-      b.field<&ManyFields::a4>("a4");
-      b.field<&ManyFields::a5>("a5");
-      b.field<&ManyFields::a6>("a6");
-      b.field<&ManyFields::a7>("a7");
-      b.field<&ManyFields::a8>("a8");
-      b.field<&ManyFields::a9>("a9");
-      b.field<&ManyFields::a10>("a10");
-      b.field<&ManyFields::a11>("a11");
-      b.field<&ManyFields::a12>("a12");
-      b.field<&ManyFields::a13>("a13");
-      b.field<&ManyFields::a14>("a14");
-      b.field<&ManyFields::a15>("a15");
-      b.field<&ManyFields::a16>("a16");
-      b.field<&ManyFields::a17>("a17");
-      b.field<&ManyFields::a18>("a18");
-      b.field<&ManyFields::a19>("a19");
+      b.Field<&ManyFields::a0>("a0");
+      b.Field<&ManyFields::a1>("a1");
+      b.Field<&ManyFields::a2>("a2");
+      b.Field<&ManyFields::a3>("a3");
+      b.Field<&ManyFields::a4>("a4");
+      b.Field<&ManyFields::a5>("a5");
+      b.Field<&ManyFields::a6>("a6");
+      b.Field<&ManyFields::a7>("a7");
+      b.Field<&ManyFields::a8>("a8");
+      b.Field<&ManyFields::a9>("a9");
+      b.Field<&ManyFields::a10>("a10");
+      b.Field<&ManyFields::a11>("a11");
+      b.Field<&ManyFields::a12>("a12");
+      b.Field<&ManyFields::a13>("a13");
+      b.Field<&ManyFields::a14>("a14");
+      b.Field<&ManyFields::a15>("a15");
+      b.Field<&ManyFields::a16>("a16");
+      b.Field<&ManyFields::a17>("a17");
+      b.Field<&ManyFields::a18>("a18");
+      b.Field<&ManyFields::a19>("a19");
     }
   };
 }

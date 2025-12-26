@@ -9,12 +9,12 @@ namespace Demo
     float mul(float a, float b) const { return a * b; }
     double mul(int a, double b) const { return a * b; }
 
-    friend void ngin_reflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b)
+    friend void NginReflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b)
     {
-      b.set_name("Demo::Math");
-      b.method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");
-      b.method<static_cast<float (Math::*)(float, float) const>(&Math::mul)>("mul");
-      b.method<static_cast<double (Math::*)(int, double) const>(&Math::mul)>("mul");
+      b.SetName("Demo::Math");
+      b.Method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");
+      b.Method<static_cast<float (Math::*)(float, float) const>(&Math::mul)>("mul");
+      b.Method<static_cast<double (Math::*)(int, double) const>(&Math::mul)>("mul");
     }
   };
 }

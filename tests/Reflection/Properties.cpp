@@ -9,24 +9,24 @@ struct User {
   int score{0};
   int GetScore() const { return score; }
   void SetScore(int v) { score = v; }
-  friend void ngin_reflect(NGIN::Reflection::Tag<User>, NGIN::Reflection::TypeBuilder<User> &b) {
-    b.property<&User::GetScore, &User::SetScore>("score");
+  friend void NginReflect(NGIN::Reflection::Tag<User>, NGIN::Reflection::TypeBuilder<User> &b) {
+    b.Property<&User::GetScore, &User::SetScore>("score");
   }
 };
 
 struct RefProp {
   int value{0};
   int &Value() { return value; }
-  friend void ngin_reflect(NGIN::Reflection::Tag<RefProp>, NGIN::Reflection::TypeBuilder<RefProp> &b) {
-    b.property<&RefProp::Value>("value");
+  friend void NginReflect(NGIN::Reflection::Tag<RefProp>, NGIN::Reflection::TypeBuilder<RefProp> &b) {
+    b.Property<&RefProp::Value>("value");
   }
 };
 
 struct ReadOnly {
   int value{3};
   const int &Value() const { return value; }
-  friend void ngin_reflect(NGIN::Reflection::Tag<ReadOnly>, NGIN::Reflection::TypeBuilder<ReadOnly> &b) {
-    b.property<&ReadOnly::Value>("value");
+  friend void NginReflect(NGIN::Reflection::Tag<ReadOnly>, NGIN::Reflection::TypeBuilder<ReadOnly> &b) {
+    b.Property<&ReadOnly::Value>("value");
   }
 };
 } // namespace PropDemo
@@ -80,7 +80,7 @@ TEST_CASE("MemberEnumerationIncludesProperties", "[reflection][Properties]") {
     auto m = t.MemberAt(i);
     if (m.IsProperty()) {
       auto p = m.AsProperty();
-      if (p.name() == std::string_view{"score"})
+      if (p.Name() == std::string_view{"score"})
         sawProperty = true;
     }
   }
