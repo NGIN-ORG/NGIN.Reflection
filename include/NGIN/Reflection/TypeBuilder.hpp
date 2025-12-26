@@ -147,6 +147,13 @@ namespace NGIN::Reflection
 
     using NGIN::Reflection::detail::ConvertAny; // reuse shared conversion
 
+    template <class T>
+    inline bool ArgMatchesExact(const Any &arg)
+    {
+      using U = std::remove_cv_t<std::remove_reference_t<T>>;
+      return arg.GetTypeId() == TypeIdOf<U>();
+    }
+
     template <typename>
     struct GetterTraits;
 
@@ -329,6 +336,15 @@ namespace NGIN::Reflection
         return call<MemFn>(c, args, std::index_sequence_for<A...>{});
       }
 
+      template <auto MemFn>
+      static std::expected<Any, Error> InvokeExact(void *obj, const Any *args, NGIN::UIntSize count)
+      {
+        if (count != Arity)
+          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
+        auto *c = static_cast<C *>(obj);
+        return call_exact<MemFn>(c, args, std::index_sequence_for<A...>{});
+      }
+
     private:
       template <auto MemFn, std::size_t... I>
       static std::expected<Any, Error> call(C *c, const Any *args, std::index_sequence<I...>)
@@ -347,6 +363,25 @@ namespace NGIN::Reflection
           }
         }
         return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
+      }
+
+      template <auto MemFn, std::size_t... I>
+      static std::expected<Any, Error> call_exact(C *c, const Any *args, std::index_sequence<I...>)
+      {
+        if ((ArgMatchesExact<A>(args[I]) && ...))
+        {
+          if constexpr (std::is_void_v<R>)
+          {
+            (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
+            return Any::MakeVoid();
+          }
+          else
+          {
+            auto r = (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
+            return Any{std::move(r)};
+          }
+        }
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
       }
     };
 
@@ -367,6 +402,15 @@ namespace NGIN::Reflection
         return call<MemFn>(c, args, std::index_sequence_for<A...>{});
       }
 
+      template <auto MemFn>
+      static std::expected<Any, Error> InvokeExact(void *obj, const Any *args, NGIN::UIntSize count)
+      {
+        if (count != Arity)
+          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
+        auto *c = static_cast<const C *>(obj);
+        return call_exact<MemFn>(c, args, std::index_sequence_for<A...>{});
+      }
+
     private:
       template <auto MemFn, std::size_t... I>
       static std::expected<Any, Error> call(const C *c, const Any *args, std::index_sequence<I...>)
@@ -385,6 +429,25 @@ namespace NGIN::Reflection
           }
         }
         return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
+      }
+
+      template <auto MemFn, std::size_t... I>
+      static std::expected<Any, Error> call_exact(const C *c, const Any *args, std::index_sequence<I...>)
+      {
+        if ((ArgMatchesExact<A>(args[I]) && ...))
+        {
+          if constexpr (std::is_void_v<R>)
+          {
+            (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
+            return Any::MakeVoid();
+          }
+          else
+          {
+            auto r = (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
+            return Any{std::move(r)};
+          }
+        }
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
       }
     };
   } // namespace detail
@@ -419,6 +482,7 @@ namespace NGIN::Reflection
     }
     // Invoker
     m.Invoke = &Traits::template Invoke<MemFn>;
+    m.InvokeExact = &Traits::template InvokeExact<MemFn>;
     reg.types[m_index].methods.PushBack(std::move(m));
     // Add to overload set map
     auto &tdesc = reg.types[m_index];

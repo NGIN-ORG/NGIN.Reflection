@@ -536,6 +536,8 @@ namespace NGIN::Reflection
     if (!vec)
       return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
     NGIN::UInt32 bestIdx = static_cast<NGIN::UInt32>(-1);
+    NGIN::UInt32 closestIdx = static_cast<NGIN::UInt32>(-1);
+    int closestScore = INT_MAX;
     struct Key
     {
       int total;
@@ -557,6 +559,13 @@ namespace NGIN::Reflection
       if (m.paramTypeIds.Size() != count)
       {
         diag.code = DiagnosticCode::ArityMismatch;
+        auto diff = m.paramTypeIds.Size() > count ? m.paramTypeIds.Size() - count : count - m.paramTypeIds.Size();
+        diag.totalCost = 10000 + static_cast<int>(diff);
+        if (diag.totalCost < closestScore)
+        {
+          closestScore = diag.totalCost;
+          closestIdx = mi;
+        }
         diags.PushBack(std::move(diag));
         continue;
       }
@@ -574,6 +583,7 @@ namespace NGIN::Reflection
           ok = false;
           diag.code = DiagnosticCode::NonConvertible;
           diag.argIndex = i;
+          diag.totalCost = 20000 + static_cast<int>(i);
           break;
         }
         total += d.cost;
@@ -593,18 +603,40 @@ namespace NGIN::Reflection
           bestIdx = mi;
         }
       }
+      if (diag.code == DiagnosticCode::None && diag.totalCost < closestScore)
+      {
+        closestScore = diag.totalCost;
+        closestIdx = mi;
+      }
+      if (diag.code == DiagnosticCode::NonConvertible && diag.totalCost < closestScore)
+      {
+        closestScore = diag.totalCost;
+        closestIdx = mi;
+      }
       diags.PushBack(std::move(diag));
     }
     if (bestIdx == static_cast<NGIN::UInt32>(-1))
-      return std::unexpected(Error{ErrorCode::InvalidArgument, "no viable overload", std::move(diags)});
+    {
+      Error err{ErrorCode::InvalidArgument, "no viable overload", std::move(diags)};
+      if (closestIdx != static_cast<NGIN::UInt32>(-1))
+        err.closestMethodIndex = closestIdx;
+      return std::unexpected(std::move(err));
+    }
     NGIN::Containers::Vector<NGIN::UInt64> argTypeIds;
+    NGIN::Containers::Vector<detail::ConversionKind> conversions;
     if (count > 0)
     {
       argTypeIds.Reserve(count);
+      conversions.Reserve(count);
+      const auto &m = tdesc.methods[bestIdx];
       for (NGIN::UIntSize i = 0; i < count; ++i)
+      {
         argTypeIds.PushBack(args[i].GetTypeId());
+        conversions.PushBack(args[i].GetTypeId() == m.paramTypeIds[i] ? detail::ConversionKind::Exact
+                                                                      : detail::ConversionKind::Convert);
+      }
     }
-    return ResolvedMethod{m_h.index, bestIdx, std::move(argTypeIds)};
+    return ResolvedMethod{m_h.index, bestIdx, std::move(argTypeIds), std::move(conversions)};
   }
 
   // Constructors

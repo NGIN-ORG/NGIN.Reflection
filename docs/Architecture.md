@@ -27,7 +27,7 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 - Small, trivially copyable handles (indices) for `Type`, `Field`, `Method`.
 - Process-local registry populated on demand; strings interned per registry.
 - Registration is not currently thread-safe (concurrent `GetType<T>()` should be avoided during startup).
-- Error handling via `std::expected<T, Error>`; library does not throw.
+- Error handling via `std::expected<T, Error>`; `Error` can carry overload diagnostics and closest match index.
 
 ## Lookup APIs
 
@@ -35,7 +35,7 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 - `GetField`/`GetProperty`/`GetMethod` return `std::expected` with errors; `FindField`/`FindProperty`/`FindMethod` return `std::optional`.
 - `FindMethods(name)` returns an overload view (size + index access).
 - Fields expose typed `Get<T>(obj)`/`Set(obj, value)` helpers in addition to Any-based access.
-- `ResolveMethod(name, args)` returns a `ResolvedMethod` that caches the argument shape.
+- `ResolveMethod(name, args)` returns a `ResolvedMethod` that caches the argument shape and conversion plan.
 
 ## ABI Strategy (Phase 3, partial)
 
@@ -73,11 +73,13 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 - Runtime resolution (`ResolveMethod(name, Any*, count)`) with scoring:
   - exact match > promotion > conversion; penalize narrowing/signedness changes.
   - tie‑break by registration order.
+- Resolution failures return structured diagnostics per candidate with an optional closest-match index.
 - Typed resolution (`ResolveMethod<R, A...>(name)` or `ResolveMethod<R(Args...)>(name)`) — exact param/return IDs.
 - Invocation:
   - `Method::Invoke(obj, Any*, count)` and `Method::Invoke(obj, span<const Any>)`.
   - `Method::InvokeAs<R>(obj, args...)` builds `Any[]`, invokes, and returns `expected<R, Error>`.
   - `Type::InvokeAs<R, A...>(name, obj, args...)` resolves by types then invokes.
+  - `ResolvedMethod` uses an exact-match fast path when no conversion is required.
 
 ## Any
 

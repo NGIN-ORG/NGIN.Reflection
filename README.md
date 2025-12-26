@@ -72,7 +72,7 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
 - Attributes: on type/field/method with `std::variant<bool, int64_t, double, string_view, UInt64>`.
 - Any: 32B SBO, heap fallback, copy/move, `Cast<T>()`, `GetTypeId()`, `Size()`, `Data()`.
 - Adapters: sequence (std::vector, `NGIN::Containers::Vector`), tuple, variant, optional‑like, std::map/unordered_map, and `NGIN::Containers::FlatHashMap`.
-- Error model: `std::expected<T, Error>` throughout; library does not throw.
+- Error model: `std::expected<T, Error>` throughout; overload diagnostics and closest-match index on resolution failures.
 - Module init helper for explicit registration in plugins (`ModuleInit.hpp`).
 - ABI export/merge (methods/ctors can be invoked when invoke tables are present; fields are metadata-only across DLLs).
 

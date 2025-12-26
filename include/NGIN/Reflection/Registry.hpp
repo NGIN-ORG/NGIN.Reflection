@@ -108,6 +108,7 @@ namespace NGIN::Reflection
       NGIN::UInt64 returnTypeId;
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
       std::expected<Any, Error> (*Invoke)(void *, const Any *, NGIN::UIntSize){nullptr};
+      std::expected<Any, Error> (*InvokeExact)(void *, const Any *, NGIN::UIntSize){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -203,6 +204,12 @@ namespace NGIN::Reflection
 
     template <class Sig>
     concept FunctionSignature = IsFunctionSignature<Sig>::value;
+
+    enum class ConversionKind : NGIN::UInt8
+    {
+      Exact = 0,
+      Convert = 1,
+    };
 
     // Function pointers for field accessors
     template <auto MemberPtr>
@@ -529,8 +536,14 @@ namespace NGIN::Reflection
   {
   public:
     ResolvedMethod() = default;
-    ResolvedMethod(NGIN::UInt32 typeIndex, NGIN::UInt32 methodIndex, NGIN::Containers::Vector<NGIN::UInt64> argTypeIds)
-        : m_typeIndex(typeIndex), m_methodIndex(methodIndex), m_argTypeIds(std::move(argTypeIds))
+    ResolvedMethod(NGIN::UInt32 typeIndex,
+                   NGIN::UInt32 methodIndex,
+                   NGIN::Containers::Vector<NGIN::UInt64> argTypeIds,
+                   NGIN::Containers::Vector<detail::ConversionKind> conversions)
+        : m_typeIndex(typeIndex),
+          m_methodIndex(methodIndex),
+          m_argTypeIds(std::move(argTypeIds)),
+          m_conversions(std::move(conversions))
     {
     }
 
@@ -547,8 +560,20 @@ namespace NGIN::Reflection
         if (args[i].GetTypeId() != m_argTypeIds[i])
           return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
       }
-      auto m = Method{m_typeIndex, m_methodIndex};
-      return m.Invoke(obj, args);
+      const auto &reg = detail::GetRegistry();
+      const auto &m = reg.types[m_typeIndex].methods[m_methodIndex];
+      bool needsConvert = false;
+      for (NGIN::UIntSize i = 0; i < m_conversions.Size(); ++i)
+      {
+        if (m_conversions[i] != detail::ConversionKind::Exact)
+        {
+          needsConvert = true;
+          break;
+        }
+      }
+      if (!needsConvert && m.InvokeExact)
+        return m.InvokeExact(obj, args.data(), static_cast<NGIN::UIntSize>(args.size()));
+      return m.Invoke(obj, args.data(), static_cast<NGIN::UIntSize>(args.size()));
     }
 
     [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, const Any *args, NGIN::UIntSize count) const
@@ -598,6 +623,7 @@ namespace NGIN::Reflection
     NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 m_methodIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::Containers::Vector<NGIN::UInt64> m_argTypeIds;
+    NGIN::Containers::Vector<detail::ConversionKind> m_conversions;
   };
 
   class Constructor

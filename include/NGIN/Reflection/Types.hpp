@@ -8,6 +8,7 @@
 #include <string_view>
 #include <expected>
 #include <utility>
+#include <optional>
 
 namespace NGIN::Reflection
 {
@@ -45,6 +46,7 @@ namespace NGIN::Reflection
     ErrorCode code{ErrorCode::InvalidArgument};
     std::string_view message{};
     NGIN::Containers::Vector<OverloadDiagnostic> diagnostics{};
+    std::optional<NGIN::UInt32> closestMethodIndex{};
 
     constexpr Error() = default;
     Error(ErrorCode c, std::string_view m) : code(c), message(m) {}
