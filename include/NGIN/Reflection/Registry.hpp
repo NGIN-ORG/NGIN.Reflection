@@ -53,10 +53,14 @@ namespace NGIN::Reflection
   // Runtime wrappers
   class Field;
   class Property;
+  class EnumValue;
   class Type;
   class Method;
   class Constructor;
   class Member;
+  class Base;
+  class Function;
+  class ResolvedFunction;
   class AttributeView;
 
   namespace detail
@@ -112,6 +116,47 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
+    struct FunctionRuntimeDesc
+    {
+      std::string_view name;
+      NameId nameId{static_cast<NameId>(-1)};
+      NGIN::UInt64 returnTypeId;
+      NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
+      std::expected<Any, Error> (*Invoke)(const Any *, NGIN::UIntSize){nullptr};
+      std::expected<Any, Error> (*InvokeExact)(const Any *, NGIN::UIntSize){nullptr};
+      NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
+    };
+
+    struct EnumValueRuntimeDesc
+    {
+      std::string_view name;
+      NameId nameId{static_cast<NameId>(-1)};
+      Any value{};
+      std::int64_t svalue{0};
+      std::uint64_t uvalue{0};
+    };
+
+    struct EnumRuntimeDesc
+    {
+      bool isEnum{false};
+      bool isSigned{true};
+      NGIN::UInt64 underlyingTypeId{0};
+      NGIN::Containers::Vector<EnumValueRuntimeDesc> values;
+      NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> valueIndex;
+      std::expected<std::uint64_t, Error> (*toUnsigned)(const Any &){nullptr};
+      std::expected<std::int64_t, Error> (*toSigned)(const Any &){nullptr};
+    };
+
+    struct BaseRuntimeDesc
+    {
+      NGIN::UInt32 baseTypeIndex{static_cast<NGIN::UInt32>(-1)};
+      NGIN::UInt64 baseTypeId{0};
+      void *(*upcast)(void *){nullptr};
+      const void *(*upcastConst)(const void *){nullptr};
+      void *(*downcast)(void *){nullptr};
+      const void *(*downcastConst)(const void *){nullptr};
+    };
+
     struct CtorRuntimeDesc
     {
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
@@ -130,6 +175,9 @@ namespace NGIN::Reflection
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> fieldIndex;
       NGIN::Containers::Vector<PropertyRuntimeDesc> properties;
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> propertyIndex;
+      EnumRuntimeDesc enumInfo;
+      NGIN::Containers::Vector<BaseRuntimeDesc> bases;
+      NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::UInt32> baseIndex;
       NGIN::Containers::Vector<MethodRuntimeDesc> methods;
       NGIN::Containers::Vector<CtorRuntimeDesc> constructors;
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
@@ -141,6 +189,8 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<TypeRuntimeDesc> types;
       NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::UInt32> byTypeId;
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> byName;
+      NGIN::Containers::Vector<FunctionRuntimeDesc> functions;
+      NGIN::Containers::FlatHashMap<NameId, NGIN::Containers::Vector<NGIN::UInt32>> functionOverloads;
 
       StringInterner names;
     };
@@ -204,6 +254,24 @@ namespace NGIN::Reflection
 
     template <class Sig>
     concept FunctionSignature = IsFunctionSignature<Sig>::value;
+
+    template <class>
+    struct IsFunctionPtr : std::false_type
+    {
+    };
+    template <class R, class... A>
+    struct IsFunctionPtr<R (*)(A...)> : std::true_type
+    {
+    };
+    template <class T>
+    inline constexpr bool IsFunctionPtrV = IsFunctionPtr<T>::value;
+
+    template <class T>
+    inline bool ArgMatchesExact(const Any &arg)
+    {
+      using U = std::remove_cv_t<std::remove_reference_t<T>>;
+      return arg.GetTypeId() == TypeIdOf<U>();
+    }
 
     enum class ConversionKind : NGIN::UInt8
     {
@@ -453,6 +521,21 @@ namespace NGIN::Reflection
     friend class Type;
   };
 
+  class EnumValue
+  {
+  public:
+    constexpr EnumValue() = default;
+    explicit constexpr EnumValue(EnumValueHandle h) : m_h(h) {}
+
+    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] std::string_view name() const;
+    [[nodiscard]] Any Value() const;
+
+  private:
+    EnumValueHandle m_h{};
+    friend class Type;
+  };
+
   class Method
   {
   public:
@@ -530,6 +613,112 @@ namespace NGIN::Reflection
   private:
     NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 m_methodIndex{static_cast<NGIN::UInt32>(-1)};
+  };
+
+  class Function
+  {
+  public:
+    constexpr Function() = default;
+    explicit constexpr Function(FunctionHandle h) : m_h(h) {}
+
+    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] std::string_view GetName() const;
+    [[nodiscard]] NGIN::UIntSize GetParameterCount() const;
+    [[nodiscard]] NGIN::UInt64 GetTypeId() const;
+
+    [[nodiscard]] std::expected<Any, Error> Invoke(const Any *args, NGIN::UIntSize count) const;
+    [[nodiscard]] std::expected<Any, Error> Invoke(std::span<const Any> args) const
+    {
+      return Invoke(args.data(), static_cast<NGIN::UIntSize>(args.size()));
+    }
+
+    template <class R, class... A>
+    [[nodiscard]] std::expected<R, Error> InvokeAs(A &&...a) const
+    {
+      std::array<Any, sizeof...(A)> tmp{Any{std::forward<A>(a)}...};
+      auto r = Invoke(tmp.data(), static_cast<NGIN::UIntSize>(tmp.size()));
+      if (!r.has_value())
+        return std::unexpected(r.error());
+      if constexpr (std::is_void_v<R>)
+      {
+        return {};
+      }
+      else
+      {
+        return r->template Cast<R>();
+      }
+    }
+
+    // Attributes
+    [[nodiscard]] NGIN::UIntSize attribute_count() const;
+    [[nodiscard]] AttributeView attribute_at(NGIN::UIntSize i) const;
+    [[nodiscard]] std::expected<AttributeView, Error> attribute(std::string_view key) const;
+
+  private:
+    FunctionHandle m_h{};
+  };
+
+  class ResolvedFunction
+  {
+  public:
+    ResolvedFunction() = default;
+    ResolvedFunction(NGIN::UInt32 functionIndex,
+                     NGIN::Containers::Vector<NGIN::UInt64> argTypeIds,
+                     NGIN::Containers::Vector<detail::ConversionKind> conversions)
+        : m_functionIndex(functionIndex), m_argTypeIds(std::move(argTypeIds)), m_conversions(std::move(conversions))
+    {
+    }
+
+    [[nodiscard]] bool IsValid() const noexcept { return m_functionIndex != static_cast<NGIN::UInt32>(-1); }
+    [[nodiscard]] Function FunctionHandle() const { return Function{NGIN::Reflection::FunctionHandle{m_functionIndex}}; }
+    [[nodiscard]] NGIN::UIntSize ArgumentCount() const { return m_argTypeIds.Size(); }
+
+    [[nodiscard]] std::expected<Any, Error> Invoke(std::span<const Any> args) const
+    {
+      if (args.size() != m_argTypeIds.Size())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
+      for (NGIN::UIntSize i = 0; i < m_argTypeIds.Size(); ++i)
+      {
+        if (args[i].GetTypeId() != m_argTypeIds[i])
+          return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
+      }
+      const auto &reg = detail::GetRegistry();
+      const auto &f = reg.functions[m_functionIndex];
+      bool needsConvert = false;
+      for (NGIN::UIntSize i = 0; i < m_conversions.Size(); ++i)
+      {
+        if (m_conversions[i] != detail::ConversionKind::Exact)
+        {
+          needsConvert = true;
+          break;
+        }
+      }
+      if (!needsConvert && f.InvokeExact)
+        return f.InvokeExact(args.data(), static_cast<NGIN::UIntSize>(args.size()));
+      return f.Invoke(args.data(), static_cast<NGIN::UIntSize>(args.size()));
+    }
+
+    [[nodiscard]] std::expected<Any, Error> Invoke(const Any *args, NGIN::UIntSize count) const
+    {
+      return Invoke(std::span<const Any>{args, count});
+    }
+
+    template <class R, class... A>
+    [[nodiscard]] std::expected<R, Error> InvokeAs(A &&...a) const
+    {
+      std::array<Any, sizeof...(A)> tmp{Any{std::forward<A>(a)}...};
+      auto r = Invoke(std::span<const Any>{tmp.data(), tmp.size()});
+      if (!r.has_value())
+        return std::unexpected(r.error());
+      if constexpr (std::is_void_v<R>)
+        return {};
+      return r->template Cast<R>();
+    }
+
+  private:
+    NGIN::UInt32 m_functionIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::Containers::Vector<NGIN::UInt64> m_argTypeIds;
+    NGIN::Containers::Vector<detail::ConversionKind> m_conversions;
   };
 
   class ResolvedMethod
@@ -680,6 +869,20 @@ namespace NGIN::Reflection
     const NGIN::Containers::Vector<NGIN::UInt32> *m_indices{nullptr};
   };
 
+  class FunctionOverloads
+  {
+  public:
+    FunctionOverloads() = default;
+    explicit FunctionOverloads(const NGIN::Containers::Vector<NGIN::UInt32> *indices) : m_indices(indices) {}
+
+    [[nodiscard]] bool IsValid() const noexcept { return m_indices != nullptr; }
+    [[nodiscard]] NGIN::UIntSize Size() const { return m_indices ? m_indices->Size() : 0; }
+    [[nodiscard]] Function FunctionAt(NGIN::UIntSize i) const { return Function{FunctionHandle{(*m_indices)[i]}}; }
+
+  private:
+    const NGIN::Containers::Vector<NGIN::UInt32> *m_indices{nullptr};
+  };
+
   class Type
   {
   public:
@@ -701,6 +904,15 @@ namespace NGIN::Reflection
     [[nodiscard]] Property PropertyAt(NGIN::UIntSize i) const;
     [[nodiscard]] ExpectedProperty GetProperty(std::string_view name) const;
     [[nodiscard]] std::optional<Property> FindProperty(std::string_view name) const;
+
+    [[nodiscard]] bool IsEnum() const;
+    [[nodiscard]] NGIN::UInt64 EnumUnderlyingTypeId() const;
+    [[nodiscard]] NGIN::UIntSize EnumValueCount() const;
+    [[nodiscard]] EnumValue EnumValueAt(NGIN::UIntSize i) const;
+    [[nodiscard]] ExpectedEnumValue GetEnumValue(std::string_view name) const;
+    [[nodiscard]] std::optional<EnumValue> FindEnumValue(std::string_view name) const;
+    [[nodiscard]] std::expected<Any, Error> ParseEnum(std::string_view name) const;
+    [[nodiscard]] std::optional<std::string_view> EnumName(const Any &value) const;
 
     [[nodiscard]] NGIN::UIntSize MethodCount() const;
     [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const;
@@ -850,6 +1062,13 @@ namespace NGIN::Reflection
     [[nodiscard]] NGIN::UIntSize MemberCount() const;
     [[nodiscard]] Member MemberAt(NGIN::UIntSize i) const;
 
+    // Base-class metadata
+    [[nodiscard]] NGIN::UIntSize BaseCount() const;
+    [[nodiscard]] Base BaseAt(NGIN::UIntSize i) const;
+    [[nodiscard]] ExpectedBase GetBase(const Type &base) const;
+    [[nodiscard]] std::optional<Base> FindBase(const Type &base) const;
+    [[nodiscard]] bool IsDerivedFrom(const Type &base) const;
+
   private:
     template <class Sig, std::size_t... I>
     [[nodiscard]] std::expected<Method, Error> ResolveMethodBySignature(std::string_view name, std::index_sequence<I...>) const
@@ -883,6 +1102,112 @@ namespace NGIN::Reflection
   private:
     MemberHandle m_h{};
   };
+
+  class Base
+  {
+  public:
+    constexpr Base() = default;
+    explicit constexpr Base(BaseHandle h) : m_h(h) {}
+
+    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] Type BaseType() const;
+    [[nodiscard]] void *Upcast(void *obj) const;
+    [[nodiscard]] const void *Upcast(const void *obj) const;
+    [[nodiscard]] void *Downcast(void *obj) const;
+    [[nodiscard]] const void *Downcast(const void *obj) const;
+    [[nodiscard]] bool CanDowncast() const;
+
+  private:
+    BaseHandle m_h{};
+  };
+
+  // Function registry queries
+  [[nodiscard]] NGIN::UIntSize FunctionCount();
+  [[nodiscard]] Function FunctionAt(NGIN::UIntSize i);
+  [[nodiscard]] ExpectedFunction GetFunction(std::string_view name);
+  [[nodiscard]] std::optional<Function> FindFunction(std::string_view name);
+  [[nodiscard]] FunctionOverloads FindFunctions(std::string_view name);
+  [[nodiscard]] ExpectedResolvedFunction ResolveFunction(std::string_view name, const Any *args, NGIN::UIntSize count);
+  [[nodiscard]] inline ExpectedResolvedFunction ResolveFunction(std::string_view name, std::span<const Any> args)
+  {
+    return ResolveFunction(name, args.data(), static_cast<NGIN::UIntSize>(args.size()));
+  }
+
+  template <class R, class... A>
+  requires (!detail::FunctionSignature<R>)
+  [[nodiscard]] ExpectedFunction ResolveFunction(std::string_view name);
+
+  template <class Sig, std::size_t... I>
+  [[nodiscard]] ExpectedFunction ResolveFunctionBySignature(std::string_view name, std::index_sequence<I...>)
+  {
+    using Traits = detail::SignatureTraits<Sig>;
+    return ResolveFunction<typename Traits::Ret, std::tuple_element_t<I, typename Traits::Args>...>(name);
+  }
+
+  // Resolve by compile-time signature (exact match on parameter and, if non-void, return type)
+  template <class R = void, class... A>
+  requires (!detail::FunctionSignature<R>)
+  [[nodiscard]] ExpectedFunction ResolveFunction(std::string_view name)
+  {
+    const auto &reg = detail::GetRegistry();
+    NameId nid{};
+    if (!detail::FindNameId(name, nid))
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+    auto *vec = reg.functionOverloads.GetPtr(nid);
+    if (!vec)
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+    constexpr NGIN::UIntSize N = sizeof...(A);
+    NGIN::UInt64 desired[N == 0 ? 1 : N] = {detail::TypeIdOf<std::remove_cv_t<std::remove_reference_t<A>>>()...};
+    const NGIN::UInt64 desiredRet = []
+    {
+      if constexpr (std::is_void_v<R>)
+        return NGIN::UInt64{0};
+      else
+        return detail::TypeIdOf<std::remove_cv_t<std::remove_reference_t<R>>>();
+    }();
+    for (NGIN::UIntSize k = 0; k < vec->Size(); ++k)
+    {
+      auto fi = (*vec)[k];
+      const auto &f = reg.functions[fi];
+      if constexpr (!std::is_void_v<R>)
+      {
+        if (f.returnTypeId != desiredRet)
+          continue;
+      }
+      else
+      {
+        if (f.returnTypeId != 0)
+          continue;
+      }
+      if (f.paramTypeIds.Size() != N)
+        continue;
+      bool all = true;
+      for (NGIN::UIntSize i = 0; i < N; ++i)
+      {
+        if (f.paramTypeIds[i] != desired[i])
+        {
+          all = false;
+          break;
+        }
+      }
+      if (all)
+        return Function{FunctionHandle{fi}};
+    }
+    return std::unexpected(Error{ErrorCode::InvalidArgument, "no exact match"});
+  }
+
+  template <class Sig>
+  requires detail::FunctionSignature<Sig>
+  [[nodiscard]] ExpectedFunction ResolveFunction(std::string_view name)
+  {
+    using Traits = detail::SignatureTraits<Sig>;
+    constexpr auto N = std::tuple_size_v<typename Traits::Args>;
+    return ResolveFunctionBySignature<Sig>(name, std::make_index_sequence<N>{});
+  }
+
+  // Register a free or static function in the global registry
+  template <auto Fn>
+  Function RegisterFunction(std::string_view name);
 
   // Queries
   ExpectedType GetType(std::string_view name);

@@ -1,4 +1,4 @@
-// Diagnostics.cpp — tests for overload diagnostics and closest match
+// Diagnostics.cpp - tests for overload diagnostics and closest match
 
 #include <catch2/catch_test_macros.hpp>
 

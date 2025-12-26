@@ -36,6 +36,8 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 - `FindMethods(name)` returns an overload view (size + index access).
 - Fields expose typed `Get<T>(obj)`/`Set(obj, value)` helpers in addition to Any-based access.
 - `ResolveMethod(name, args)` returns a `ResolvedMethod` that caches the argument shape and conversion plan.
+- Global functions use `RegisterFunction` + `ResolveFunction` and mirror method resolution.
+- Enums expose `EnumValue` lookup, parse, and stringify helpers when registered.
 
 ## ABI Strategy (Phase 3, partial)
 
@@ -53,9 +55,12 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 ## Data Structures
 
 - `TypeRuntimeDesc`: name, `typeId`, size, align, fields, properties, methods, attributes, overload map.
+- `EnumRuntimeDesc`: underlying type, value table, name index, conversion helpers.
+- `BaseRuntimeDesc`: base type id/index plus upcast/downcast hooks.
 - `FieldRuntimeDesc`: name, typeId, size, function pointers for get/load/store, attributes.
 - `PropertyRuntimeDesc`: name, typeId, get/set thunks, attributes.
 - `MethodRuntimeDesc`: name, return typeId, param typeIds, invoker FP, attributes.
+- `FunctionRuntimeDesc`: name, return typeId, param typeIds, invoker FP, attributes.
 - `CtorRuntimeDesc`: param typeIds, construct FP, attributes.
 - Global `Registry`: vectors of types and hash maps for lookups.
 
@@ -64,7 +69,10 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
 - `b.set_name(qualified)`
 - `b.field<&T::member>(name)`
 - `b.property<Getter, Setter>(name)` or `b.property<Getter>(name)` (getter-only)
+- `b.enum_value(name, value)` for enum registration
 - `b.method<sig>(name)` — use explicit member pointer type to disambiguate overloads
+- `b.static_method<&T::fn>(name)` for static member functions (registered as global functions)
+- `b.base<BaseT>()` or `b.base<BaseT, Downcast>()` for base metadata
 - `b.attribute(key, value)` / `b.field_attribute<member>(...)` / `b.property_attribute<getter>(...)` / `b.method_attribute<sig>(...)`
 - `b.constructor<Args...>()`
 
@@ -80,6 +88,7 @@ This document describes the architecture, data model, and roadmap for NGIN.Refle
   - `Method::InvokeAs<R>(obj, args...)` builds `Any[]`, invokes, and returns `expected<R, Error>`.
   - `Type::InvokeAs<R, A...>(name, obj, args...)` resolves by types then invokes.
   - `ResolvedMethod` uses an exact-match fast path when no conversion is required.
+  - `ResolveFunction` and `Function::Invoke` follow the same scoring/diagnostic model.
 
 ## Any
 

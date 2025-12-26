@@ -1,4 +1,4 @@
-// Properties.cpp — tests for property registration and access
+// Properties.cpp - tests for property registration and access
 
 #include <catch2/catch_test_macros.hpp>
 

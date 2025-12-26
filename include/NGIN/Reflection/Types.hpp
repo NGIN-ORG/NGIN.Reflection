@@ -84,6 +84,26 @@ namespace NGIN::Reflection
     constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && ctorIndex != static_cast<NGIN::UInt32>(-1); }
   };
 
+  struct EnumValueHandle
+  {
+    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 valueIndex{static_cast<NGIN::UInt32>(-1)};
+    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && valueIndex != static_cast<NGIN::UInt32>(-1); }
+  };
+
+  struct BaseHandle
+  {
+    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 baseIndex{static_cast<NGIN::UInt32>(-1)};
+    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && baseIndex != static_cast<NGIN::UInt32>(-1); }
+  };
+
+  struct FunctionHandle
+  {
+    NGIN::UInt32 index{static_cast<NGIN::UInt32>(-1)};
+    constexpr bool IsValid() const noexcept { return index != static_cast<NGIN::UInt32>(-1); }
+  };
+
   enum class MemberKind : unsigned char
   {
     Field = 0,
@@ -107,10 +127,18 @@ namespace NGIN::Reflection
   class Method;
   class Constructor;
   class Member;
+  class EnumValue;
+  class Base;
+  class Function;
+  class ResolvedFunction;
 
   using ExpectedType = std::expected<Type, Error>;
   using ExpectedField = std::expected<Field, Error>;
   using ExpectedProperty = std::expected<Property, Error>;
   using ExpectedConstructor = std::expected<Constructor, Error>;
+  using ExpectedEnumValue = std::expected<EnumValue, Error>;
+  using ExpectedBase = std::expected<Base, Error>;
+  using ExpectedFunction = std::expected<Function, Error>;
+  using ExpectedResolvedFunction = std::expected<ResolvedFunction, Error>;
 
 } // namespace NGIN::Reflection

@@ -67,6 +67,9 @@ auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
 - Fields: enumerate/find (`GetField`, `FindField`); GetMut/GetConst; typed `Get<T>(obj)`/`Set(obj, value)`; `GetAny`/`SetAny`; field attributes.
 - Properties: getter/setter registration with `property<Getter, Setter>()`; read-only when no setter is available.
 - Methods: enumerate/find (`GetMethod`, `FindMethods`); overload resolution with promotions/conversions; method attributes.
+- Functions: register free/static functions via `RegisterFunction` or `TypeBuilder::static_method`; resolve/invoke with the same overload rules.
+- Enums: register name/value pairs with `enum_value`, parse from string, stringify from value, and query underlying type id.
+- Bases: register base types with `base<BaseT>()`, query base list, and use upcast/downcast hooks when provided.
 - Typed APIs: `ResolveMethod<R, A...>()` or `ResolveMethod<R(Args...)>()`, `Method::InvokeAs<R>(obj, args...)`, `Type::InvokeAs<R, A...>(name, obj, args...)`.
 - Constructors: default construction and registered parameterized constructors via `TypeBuilder::constructor<Args...>()` + `Type::Construct(...)` and `DefaultConstruct()`.
 - Attributes: on type/field/method with `std::variant<bool, int64_t, double, string_view, UInt64>`.

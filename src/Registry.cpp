@@ -151,6 +151,98 @@ namespace NGIN::Reflection
     return std::nullopt;
   }
 
+  bool Type::IsEnum() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.index].enumInfo.isEnum;
+  }
+
+  NGIN::UInt64 Type::EnumUnderlyingTypeId() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.index].enumInfo.underlyingTypeId;
+  }
+
+  NGIN::UIntSize Type::EnumValueCount() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.index].enumInfo.values.Size();
+  }
+
+  EnumValue Type::EnumValueAt(NGIN::UIntSize i) const
+  {
+    return EnumValue{EnumValueHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+  }
+
+  ExpectedEnumValue Type::GetEnumValue(std::string_view name) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *p = tdesc.enumInfo.valueIndex.GetPtr(nid))
+        return EnumValue{EnumValueHandle{m_h.index, *p}};
+    }
+    return std::unexpected(Error{ErrorCode::NotFound, "enum value not found"});
+  }
+
+  std::optional<EnumValue> Type::FindEnumValue(std::string_view name) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *p = tdesc.enumInfo.valueIndex.GetPtr(nid))
+        return EnumValue{EnumValueHandle{m_h.index, *p}};
+    }
+    return std::nullopt;
+  }
+
+  std::expected<Any, Error> Type::ParseEnum(std::string_view name) const
+  {
+    auto v = GetEnumValue(name);
+    if (!v.has_value())
+      return std::unexpected(v.error());
+    return v->Value();
+  }
+
+  std::optional<std::string_view> Type::EnumName(const Any &value) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &info = reg.types[m_h.index].enumInfo;
+    if (!info.isEnum)
+      return std::nullopt;
+    if (info.isSigned)
+    {
+      if (!info.toSigned)
+        return std::nullopt;
+      auto r = info.toSigned(value);
+      if (!r.has_value())
+        return std::nullopt;
+      for (NGIN::UIntSize i = 0; i < info.values.Size(); ++i)
+      {
+        if (info.values[i].svalue == r.value())
+          return info.values[i].name;
+      }
+    }
+    else
+    {
+      if (!info.toUnsigned)
+        return std::nullopt;
+      auto r = info.toUnsigned(value);
+      if (!r.has_value())
+        return std::nullopt;
+      for (NGIN::UIntSize i = 0; i < info.values.Size(); ++i)
+      {
+        if (info.values[i].uvalue == r.value())
+          return info.values[i].name;
+      }
+    }
+    return std::nullopt;
+  }
+
   // Field
   std::string_view Field::name() const
   {
@@ -281,6 +373,19 @@ namespace NGIN::Reflection
     return std::unexpected(Error{ErrorCode::NotFound, "attribute not found"});
   }
 
+  // EnumValue
+  std::string_view EnumValue::name() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.typeIndex].enumInfo.values[m_h.valueIndex].name;
+  }
+
+  Any EnumValue::Value() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.typeIndex].enumInfo.values[m_h.valueIndex].value;
+  }
+
   // Method
   std::string_view Method::GetName() const
   {
@@ -331,6 +436,54 @@ namespace NGIN::Reflection
     return std::unexpected(Error{ErrorCode::NotFound, "attribute not found"});
   }
 
+  // Function
+  std::string_view Function::GetName() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.functions[m_h.index].name;
+  }
+
+  NGIN::UIntSize Function::GetParameterCount() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.functions[m_h.index].paramTypeIds.Size();
+  }
+
+  NGIN::UInt64 Function::GetTypeId() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.functions[m_h.index].returnTypeId;
+  }
+
+  std::expected<Any, Error> Function::Invoke(const Any *args, NGIN::UIntSize count) const
+  {
+    const auto &reg = GetRegistry();
+    return reg.functions[m_h.index].Invoke(args, count);
+  }
+
+  NGIN::UIntSize Function::attribute_count() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.functions[m_h.index].attributes.Size();
+  }
+
+  AttributeView Function::attribute_at(NGIN::UIntSize i) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &a = reg.functions[m_h.index].attributes[i];
+    return AttributeView{a.key, &a.value};
+  }
+
+  std::expected<AttributeView, Error> Function::attribute(std::string_view key) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &v = reg.functions[m_h.index].attributes;
+    for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
+      if (v[i].key == key)
+        return AttributeView{v[i].key, &v[i].value};
+    return std::unexpected(Error{ErrorCode::NotFound, "attribute not found"});
+  }
+
   // Constructor
   NGIN::UIntSize Constructor::ParameterCount() const
   {
@@ -371,6 +524,59 @@ namespace NGIN::Reflection
   }
 
   // Queries
+  NGIN::UIntSize FunctionCount()
+  {
+    const auto &reg = GetRegistry();
+    return reg.functions.Size();
+  }
+
+  Function FunctionAt(NGIN::UIntSize i)
+  {
+    return Function{FunctionHandle{static_cast<NGIN::UInt32>(i)}};
+  }
+
+  ExpectedFunction GetFunction(std::string_view name)
+  {
+    const auto &reg = GetRegistry();
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *vec = reg.functionOverloads.GetPtr(nid))
+      {
+        if (vec->Size() > 0)
+          return Function{FunctionHandle{(*vec)[0]}};
+      }
+    }
+    return std::unexpected(Error{ErrorCode::NotFound, "function not found"});
+  }
+
+  std::optional<Function> FindFunction(std::string_view name)
+  {
+    const auto &reg = GetRegistry();
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *vec = reg.functionOverloads.GetPtr(nid))
+      {
+        if (vec->Size() > 0)
+          return Function{FunctionHandle{(*vec)[0]}};
+      }
+    }
+    return std::nullopt;
+  }
+
+  FunctionOverloads FindFunctions(std::string_view name)
+  {
+    const auto &reg = GetRegistry();
+    NameId nid{};
+    if (!detail::FindNameId(name, nid))
+      return FunctionOverloads{};
+    const auto *vec = reg.functionOverloads.GetPtr(nid);
+    if (!vec)
+      return FunctionOverloads{};
+    return FunctionOverloads{vec};
+  }
+
   ExpectedType GetType(std::string_view name)
   {
     auto &reg = GetRegistry();
@@ -639,6 +845,119 @@ namespace NGIN::Reflection
     return ResolvedMethod{m_h.index, bestIdx, std::move(argTypeIds), std::move(conversions)};
   }
 
+  std::expected<ResolvedFunction, Error> ResolveFunction(std::string_view name, const Any *args, NGIN::UIntSize count)
+  {
+    const auto &reg = GetRegistry();
+    NameId nid{};
+    if (!detail::FindNameId(name, nid))
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+    auto *vec = reg.functionOverloads.GetPtr(nid);
+    if (!vec)
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+    NGIN::UInt32 bestIdx = static_cast<NGIN::UInt32>(-1);
+    NGIN::UInt32 closestIdx = static_cast<NGIN::UInt32>(-1);
+    int closestScore = INT_MAX;
+    struct Key
+    {
+      int total;
+      int nar;
+      int conv;
+      NGIN::UInt32 idx;
+    };
+    Key best{INT_MAX, INT_MAX, INT_MAX, 0};
+    NGIN::Containers::Vector<OverloadDiagnostic> diags;
+    diags.Reserve(vec->Size());
+    for (NGIN::UIntSize k = 0; k < vec->Size(); ++k)
+    {
+      auto fi = (*vec)[k];
+      const auto &f = reg.functions[fi];
+      OverloadDiagnostic diag{};
+      diag.methodIndex = fi;
+      diag.name = f.name;
+      diag.arity = f.paramTypeIds.Size();
+      if (f.paramTypeIds.Size() != count)
+      {
+        diag.code = DiagnosticCode::ArityMismatch;
+        auto diff = f.paramTypeIds.Size() > count ? f.paramTypeIds.Size() - count : count - f.paramTypeIds.Size();
+        diag.totalCost = 10000 + static_cast<int>(diff);
+        if (diag.totalCost < closestScore)
+        {
+          closestScore = diag.totalCost;
+          closestIdx = fi;
+        }
+        diags.PushBack(std::move(diag));
+        continue;
+      }
+      int total = 0;
+      int nar = 0;
+      int conv = 0;
+      bool ok = true;
+      for (NGIN::UIntSize i = 0; i < count; ++i)
+      {
+        auto want = f.paramTypeIds[i];
+        auto have = args[i].GetTypeId();
+        auto d = ParamScore(have, want);
+        if (d.cost >= 1000)
+        {
+          ok = false;
+          diag.code = DiagnosticCode::NonConvertible;
+          diag.argIndex = i;
+          diag.totalCost = 20000 + static_cast<int>(i);
+          break;
+        }
+        total += d.cost;
+        nar += d.narrow;
+        conv += d.conv;
+      }
+      if (ok)
+      {
+        diag.code = DiagnosticCode::None;
+        diag.totalCost = total;
+        diag.narrow = nar;
+        diag.conversions = conv;
+        Key cur{total, nar, conv, static_cast<NGIN::UInt32>(k)};
+        if (std::tuple{cur.total, cur.nar, cur.conv, cur.idx} < std::tuple{best.total, best.nar, best.conv, best.idx})
+        {
+          best = cur;
+          bestIdx = fi;
+        }
+      }
+      if (diag.code == DiagnosticCode::None && diag.totalCost < closestScore)
+      {
+        closestScore = diag.totalCost;
+        closestIdx = fi;
+      }
+      if (diag.code == DiagnosticCode::NonConvertible && diag.totalCost < closestScore)
+      {
+        closestScore = diag.totalCost;
+        closestIdx = fi;
+      }
+      diags.PushBack(std::move(diag));
+    }
+    if (bestIdx == static_cast<NGIN::UInt32>(-1))
+    {
+      Error err{ErrorCode::InvalidArgument, "no viable overload", std::move(diags)};
+      if (closestIdx != static_cast<NGIN::UInt32>(-1))
+        err.closestMethodIndex = closestIdx;
+      return std::unexpected(std::move(err));
+    }
+    NGIN::Containers::Vector<NGIN::UInt64> argTypeIds;
+    NGIN::Containers::Vector<detail::ConversionKind> conversions;
+    if (count > 0)
+    {
+      argTypeIds.Reserve(count);
+      conversions.Reserve(count);
+      const auto &f = reg.functions[bestIdx];
+      for (NGIN::UIntSize i = 0; i < count; ++i)
+      {
+        argTypeIds.PushBack(args[i].GetTypeId());
+        conversions.PushBack(args[i].GetTypeId() == f.paramTypeIds[i] ? detail::ConversionKind::Exact
+                                                                      : detail::ConversionKind::Convert);
+      }
+    }
+    return ResolvedFunction{bestIdx, std::move(argTypeIds), std::move(conversions)};
+  }
+
   // Constructors
   NGIN::UIntSize Type::ConstructorCount() const
   {
@@ -764,6 +1083,95 @@ namespace NGIN::Reflection
     if (i < t.constructors.Size())
       return Member{MemberHandle{MemberKind::Constructor, m_h.index, static_cast<NGIN::UInt32>(i)}};
     return Member{};
+  }
+
+  NGIN::UIntSize Type::BaseCount() const
+  {
+    const auto &reg = GetRegistry();
+    return reg.types[m_h.index].bases.Size();
+  }
+
+  Base Type::BaseAt(NGIN::UIntSize i) const
+  {
+    return Base{BaseHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+  }
+
+  ExpectedBase Type::GetBase(const Type &base) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    const auto tid = base.GetTypeId();
+    if (auto *p = tdesc.baseIndex.GetPtr(tid))
+      return Base{BaseHandle{m_h.index, *p}};
+    return std::unexpected(Error{ErrorCode::NotFound, "base type not found"});
+  }
+
+  std::optional<Base> Type::FindBase(const Type &base) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    const auto tid = base.GetTypeId();
+    if (auto *p = tdesc.baseIndex.GetPtr(tid))
+      return Base{BaseHandle{m_h.index, *p}};
+    return std::nullopt;
+  }
+
+  bool Type::IsDerivedFrom(const Type &base) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    const auto tid = base.GetTypeId();
+    return tdesc.baseIndex.GetPtr(tid) != nullptr;
+  }
+
+  Type Base::BaseType() const
+  {
+    const auto &reg = GetRegistry();
+    const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
+    return Type{TypeHandle{b.baseTypeIndex}};
+  }
+
+  void *Base::Upcast(void *obj) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
+    if (!b.upcast)
+      return nullptr;
+    return b.upcast(obj);
+  }
+
+  const void *Base::Upcast(const void *obj) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
+    if (!b.upcastConst)
+      return nullptr;
+    return b.upcastConst(obj);
+  }
+
+  void *Base::Downcast(void *obj) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
+    if (!b.downcast)
+      return nullptr;
+    return b.downcast(obj);
+  }
+
+  const void *Base::Downcast(const void *obj) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
+    if (!b.downcastConst)
+      return nullptr;
+    return b.downcastConst(obj);
+  }
+
+  bool Base::CanDowncast() const
+  {
+    const auto &reg = GetRegistry();
+    const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
+    return b.downcast != nullptr || b.downcastConst != nullptr;
   }
 
 } // namespace NGIN::Reflection
