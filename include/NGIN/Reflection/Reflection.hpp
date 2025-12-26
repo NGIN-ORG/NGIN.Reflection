@@ -6,7 +6,7 @@
 #include <NGIN/Reflection/Types.hpp>
 #include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/NameUtils.hpp>
-#include <NGIN/Reflection/Builder.hpp>
+#include <NGIN/Reflection/TypeBuilder.hpp>
 #include <NGIN/Reflection/ModuleInit.hpp>
 #include <NGIN/Meta/TypeName.hpp>
 

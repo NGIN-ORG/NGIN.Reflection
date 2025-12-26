@@ -12,7 +12,7 @@ struct Calc {
   int add(int x) const { return base + x; }
 
   friend void ngin_reflect(NGIN::Reflection::Tag<Calc>,
-                           NGIN::Reflection::Builder<Calc> &b) {
+                           NGIN::Reflection::TypeBuilder<Calc> &b) {
     b.set_name("Demo::Calc");
     b.field<&Calc::base>("base");
     b.method<&Calc::add>("add");
@@ -28,7 +28,7 @@ TEST_CASE("MethodInvocationReturnsExpectedResult",
   using namespace NGIN::Reflection;
   using DemoPhase1M::Calc;
 
-  auto t = TypeOf<Calc>();
+  auto t = GetType<Calc>();
   auto m = t.GetMethod("add").value();
   CHECK(m.GetParameterCount() == NGIN::UIntSize{1});
 
@@ -43,7 +43,7 @@ TEST_CASE("FieldMutatorsEnforceTypes", "[reflection][Phase1Methods]") {
   using DemoPhase1M::Calc;
 
   Calc c{1};
-  auto t = TypeOf<Calc>();
+  auto t = GetType<Calc>();
   auto fexp = t.GetField("base");
   REQUIRE(fexp.has_value());
   auto f = fexp.value();
@@ -57,12 +57,25 @@ TEST_CASE("FieldMutatorsEnforceTypes", "[reflection][Phase1Methods]") {
   CHECK_FALSE(f.SetAny(&c, Any{3.14f}).has_value());
 }
 
+TEST_CASE("FieldTypedAccessUsesReferences", "[reflection][Phase1Methods]") {
+  using namespace NGIN::Reflection;
+  using DemoPhase1M::Calc;
+
+  Calc c{1};
+  auto t = GetType<Calc>();
+  auto f = t.GetField("base").value();
+
+  CHECK(f.Set(c, 12).has_value());
+  auto v = f.Get<int>(c).value();
+  CHECK(v == 12);
+}
+
 TEST_CASE("FieldAndMethodAttributesAreExposed",
           "[reflection][Phase1Methods]") {
   using namespace NGIN::Reflection;
   using DemoPhase1M::Calc;
 
-  auto t = TypeOf<Calc>();
+  auto t = GetType<Calc>();
   auto f = t.GetField("base").value();
   auto fa = f.attribute("min").value();
   CHECK(fa.key() == std::string_view{"min"});
@@ -78,7 +91,7 @@ TEST_CASE("TypeAttributesAreRetrievable",
   using namespace NGIN::Reflection;
   using DemoPhase1M::Calc;
 
-  auto t = TypeOf<Calc>();
+  auto t = GetType<Calc>();
   auto av = t.Attribute("category").value();
   CHECK(av.key() == std::string_view{"category"});
 

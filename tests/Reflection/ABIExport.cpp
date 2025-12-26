@@ -11,7 +11,7 @@ using namespace NGIN::Reflection;
 #if defined(NGIN_REFLECTION_ENABLE_ABI)
 TEST_CASE("YieldsMergeableRegistry", "[reflection][ABIExport]")
 {
-  (void)TypeOf<int>();
+  (void)GetType<int>();
 
   NGINReflectionRegistryV1 mod{};
   INFO("export returns true");

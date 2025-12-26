@@ -9,7 +9,7 @@ namespace Demo
     float mul(float a, float b) const { return a * b; }
     double mul(int a, double b) const { return a * b; }
 
-    friend void ngin_reflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::Builder<Math> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b)
     {
       b.set_name("Demo::Math");
       b.method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");
@@ -23,7 +23,7 @@ int main()
 {
   using namespace NGIN::Reflection;
   using Demo::Math;
-  auto t = TypeOf<Math>();
+  auto t = GetType<Math>();
   // Resolve on each call to demonstrate overload selection + conversions
   Math math{};
 

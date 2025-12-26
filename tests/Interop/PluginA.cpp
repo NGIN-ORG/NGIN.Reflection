@@ -1,4 +1,4 @@
-#include <NGIN/Reflection/Builder.hpp>
+#include <NGIN/Reflection/TypeBuilder.hpp>
 #include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/ABI.hpp>
 #include <NGIN/Reflection/ModuleInit.hpp>
@@ -17,16 +17,16 @@ namespace Interop
 
   // ADL friends for reflection
   template <class T>
-  void ngin_reflect(NGIN::Reflection::Tag<T>, NGIN::Reflection::Builder<T> &);
+  void ngin_reflect(NGIN::Reflection::Tag<T>, NGIN::Reflection::TypeBuilder<T> &);
 
   template <>
-  void ngin_reflect<Common>(NGIN::Reflection::Tag<Common>, NGIN::Reflection::Builder<Common> &b)
+  void ngin_reflect<Common>(NGIN::Reflection::Tag<Common>, NGIN::Reflection::TypeBuilder<Common> &b)
   {
     b.field<&Common::a>("a");
   }
 
   template <>
-  void ngin_reflect<Adder>(NGIN::Reflection::Tag<Adder>, NGIN::Reflection::Builder<Adder> &b)
+  void ngin_reflect<Adder>(NGIN::Reflection::Tag<Adder>, NGIN::Reflection::TypeBuilder<Adder> &b)
   {
     b.method<&Adder::Add>("Add");
   }

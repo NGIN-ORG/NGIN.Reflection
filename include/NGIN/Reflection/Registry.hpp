@@ -15,8 +15,11 @@
 #include <variant>
 #include <type_traits>
 #include <array>
+#include <tuple>
 #include <string>
+#include <optional>
 #include <memory>
+#include <utility>
 
 #include <NGIN/Reflection/Types.hpp>
 
@@ -31,10 +34,10 @@ namespace NGIN::Reflection
     using type = T;
   };
   template <class T>
-  class Builder;
+  class TypeBuilder;
 
   // Optional external customization point for types you cannot modify
-  // Specialize in namespace NGIN::Reflection: template<> struct Describe<MyType> { static void Do(Builder<MyType>&); };
+  // Specialize in namespace NGIN::Reflection: template<> struct Describe<MyType> { static void Do(TypeBuilder<MyType>&); };
   template <class T>
   struct Describe;
 
@@ -130,23 +133,23 @@ namespace NGIN::Reflection
     Registry &GetRegistry() noexcept;
 
     template <class T>
-    concept HasNginReflectWithBuilder = requires(Builder<T> &b) {
-      // ADL friend should be declared as: friend void ngin_reflect(tag<T>, Builder<T>&)
+    concept HasNginReflectWithTypeBuilder = requires(TypeBuilder<T> &b) {
+      // ADL friend should be declared as: friend void ngin_reflect(Tag<T>, TypeBuilder<T>&)
       { ngin_reflect(Tag<T>{}, b) } -> std::same_as<void>;
     };
 
-    // Detection for Describe<T>::Do(Builder<T>&)
+    // Detection for Describe<T>::Do(TypeBuilder<T>&)
     template <class, class = void>
     struct HasDescribeImpl : std::false_type
     {
     };
     template <class T>
-    struct HasDescribeImpl<T, std::void_t<decltype(NGIN::Reflection::Describe<T>::Do(std::declval<Builder<T> &>()))>>
+    struct HasDescribeImpl<T, std::void_t<decltype(NGIN::Reflection::Describe<T>::Do(std::declval<TypeBuilder<T> &>()))>>
         : std::true_type
     {
     };
     template <class T>
-    concept HasDescribeWithBuilder = HasDescribeImpl<T>::value;
+    concept HasDescribeWithTypeBuilder = HasDescribeImpl<T>::value;
 
     // Traits for pointer-to-member decomposition
     template <class M>
@@ -163,6 +166,29 @@ namespace NGIN::Reflection
 
     template <auto MemberPtr>
     using MemberTypeT = typename MemberPtrTraits<decltype(MemberPtr)>::Member;
+
+    template <class Sig>
+    struct SignatureTraits;
+
+    template <class R, class... A>
+    struct SignatureTraits<R(A...)>
+    {
+      using Ret = R;
+      using Args = std::tuple<A...>;
+    };
+
+    template <class Sig, class = void>
+    struct IsFunctionSignature : std::false_type
+    {
+    };
+
+    template <class Sig>
+    struct IsFunctionSignature<Sig, std::void_t<typename SignatureTraits<Sig>::Ret>> : std::true_type
+    {
+    };
+
+    template <class Sig>
+    concept FunctionSignature = IsFunctionSignature<Sig>::value;
 
     // Function pointers for field accessors
     template <auto MemberPtr>
@@ -260,14 +286,14 @@ namespace NGIN::Reflection
       }
 #endif
 
-      if constexpr (HasNginReflectWithBuilder<U>)
+      if constexpr (HasNginReflectWithTypeBuilder<U>)
       {
-        Builder<U> b{idx};
+        TypeBuilder<U> b{idx};
         ngin_reflect(Tag<U>{}, b); // ADL — user describes fields/methods/etc.
       }
-      else if constexpr (HasDescribeWithBuilder<U>)
+      else if constexpr (HasDescribeWithTypeBuilder<U>)
       {
-        Builder<U> b{idx};
+        TypeBuilder<U> b{idx};
         NGIN::Reflection::Describe<U>::Do(b); // Trait fallback — public access only
       }
       return idx;
@@ -293,6 +319,49 @@ namespace NGIN::Reflection
     [[nodiscard]] Any GetAny(const void *obj) const;
     [[nodiscard]] std::expected<void, Error> SetAny(void *obj, const Any &value) const;
 
+    template <class Obj>
+    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+    [[nodiscard]] Any GetAny(const Obj &obj) const
+    {
+      return GetAny(static_cast<const void *>(&obj));
+    }
+
+    template <class Obj>
+    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+    [[nodiscard]] std::expected<void, Error> SetAny(Obj &obj, const Any &value) const
+    {
+      return SetAny(static_cast<void *>(&obj), value);
+    }
+
+    template <class T, class Obj>
+    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+    [[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> Get(const Obj &obj) const
+    {
+      using U = std::remove_cvref_t<T>;
+      const auto &reg = detail::GetRegistry();
+      const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
+      const auto want = detail::TypeIdOf<U>();
+      if (f.typeId != want)
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
+      const auto *ptr = static_cast<const U *>(GetConst(&obj));
+      return *ptr;
+    }
+
+    template <class T, class Obj>
+    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+    [[nodiscard]] std::expected<void, Error> Set(Obj &obj, T &&value) const
+    {
+      using U = std::remove_cvref_t<T>;
+      const auto &reg = detail::GetRegistry();
+      const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
+      const auto want = detail::TypeIdOf<U>();
+      if (f.typeId != want)
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
+      auto *ptr = static_cast<U *>(GetMut(&obj));
+      *ptr = static_cast<U>(std::forward<T>(value));
+      return {};
+    }
+
     // Attributes
     [[nodiscard]] NGIN::UIntSize attribute_count() const;
     [[nodiscard]] AttributeView attribute_at(NGIN::UIntSize i) const;
@@ -317,6 +386,16 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, std::span<const Any> args) const
     {
       return Invoke(obj, args.data(), static_cast<NGIN::UIntSize>(args.size()));
+    }
+    template <class Obj>
+    [[nodiscard]] std::expected<Any, Error> Invoke(Obj &obj, std::span<const Any> args) const
+    {
+      return Invoke(static_cast<void *>(&obj), args);
+    }
+    template <class Obj>
+    [[nodiscard]] std::expected<Any, Error> Invoke(const Obj &obj, std::span<const Any> args) const
+    {
+      return Invoke(const_cast<void *>(static_cast<const void *>(&obj)), args);
     }
     template <NGIN::UIntSize N>
     [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, const Any (&args)[N], NGIN::UIntSize count) const
@@ -346,6 +425,16 @@ namespace NGIN::Reflection
         return r->template Cast<R>();
       }
     }
+    template <class R, class Obj, class... A>
+    [[nodiscard]] std::expected<R, Error> InvokeAs(Obj &obj, A &&...a) const
+    {
+      return InvokeAs<R>(static_cast<void *>(&obj), std::forward<A>(a)...);
+    }
+    template <class R, class Obj, class... A>
+    [[nodiscard]] std::expected<R, Error> InvokeAs(const Obj &obj, A &&...a) const
+    {
+      return InvokeAs<R>(const_cast<void *>(static_cast<const void *>(&obj)), std::forward<A>(a)...);
+    }
 
     // Attributes
     [[nodiscard]] NGIN::UIntSize attribute_count() const;
@@ -370,6 +459,24 @@ namespace NGIN::Reflection
     const AttrValue *m_val{nullptr};
   };
 
+  class MethodOverloads
+  {
+  public:
+    MethodOverloads() = default;
+    MethodOverloads(NGIN::UInt32 typeIndex, const NGIN::Containers::Vector<NGIN::UInt32> *indices)
+        : m_typeIndex(typeIndex), m_indices(indices)
+    {
+    }
+
+    [[nodiscard]] bool IsValid() const noexcept { return m_indices != nullptr; }
+    [[nodiscard]] NGIN::UIntSize Size() const { return m_indices ? m_indices->Size() : 0; }
+    [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const { return Method{m_typeIndex, (*m_indices)[i]}; }
+
+  private:
+    NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
+    const NGIN::Containers::Vector<NGIN::UInt32> *m_indices{nullptr};
+  };
+
   class Type
   {
   public:
@@ -385,10 +492,13 @@ namespace NGIN::Reflection
     [[nodiscard]] NGIN::UIntSize FieldCount() const;
     [[nodiscard]] Field FieldAt(NGIN::UIntSize i) const;
     [[nodiscard]] ExpectedField GetField(std::string_view name) const;
+    [[nodiscard]] std::optional<Field> FindField(std::string_view name) const;
 
     [[nodiscard]] NGIN::UIntSize MethodCount() const;
     [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const;
     [[nodiscard]] std::expected<Method, Error> GetMethod(std::string_view name) const;
+    [[nodiscard]] std::optional<Method> FindMethod(std::string_view name) const;
+    [[nodiscard]] MethodOverloads FindMethods(std::string_view name) const;
     [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, const Any *args, NGIN::UIntSize count) const;
     [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name, std::span<const Any> args) const
     {
@@ -397,6 +507,7 @@ namespace NGIN::Reflection
 
     // Resolve by compile-time signature (exact match on parameter and, if non-void, return type)
     template <class R = void, class... A>
+    requires (!detail::FunctionSignature<R>)
     [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name) const
     {
       const auto &reg = detail::GetRegistry();
@@ -448,6 +559,15 @@ namespace NGIN::Reflection
       return std::unexpected(Error{ErrorCode::InvalidArgument, "no exact match"});
     }
 
+    template <class Sig>
+    requires detail::FunctionSignature<Sig>
+    [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name) const
+    {
+      using Traits = detail::SignatureTraits<Sig>;
+      constexpr auto N = std::tuple_size_v<typename Traits::Args>;
+      return ResolveMethodBySignature<Sig>(name, std::make_index_sequence<N>{});
+    }
+
     // Directly resolve and Invoke by compile-time signature
     template <class R = void, class... A>
     [[nodiscard]] std::expected<Any, Error> Invoke(std::string_view name, void *obj, A &&...a) const
@@ -458,6 +578,22 @@ namespace NGIN::Reflection
       std::array<Any, sizeof...(A)> tmp{Any{std::forward<A>(a)}...};
       return m->Invoke(obj, tmp.data(), static_cast<NGIN::UIntSize>(tmp.size()));
     }
+    template <class R = void, class... A, class Obj>
+    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+    [[nodiscard]] std::expected<Any, Error> Invoke(std::string_view name, Obj &&obj, A &&...a) const
+    {
+      using ObjT = std::remove_reference_t<Obj>;
+      if constexpr (std::is_const_v<ObjT>)
+      {
+        return Invoke<R>(name,
+                         const_cast<void *>(static_cast<const void *>(std::addressof(obj))),
+                         std::forward<A>(a)...);
+      }
+      else
+      {
+        return Invoke<R>(name, static_cast<void *>(std::addressof(obj)), std::forward<A>(a)...);
+      }
+    }
 
     template <class R, class... A>
     [[nodiscard]] std::expected<R, Error> InvokeAs(std::string_view name, void *obj, A &&...a) const
@@ -466,6 +602,22 @@ namespace NGIN::Reflection
       if (!m)
         return std::unexpected(m.error());
       return m->template InvokeAs<R>(obj, std::forward<A>(a)...);
+    }
+    template <class R, class... A, class Obj>
+    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+    [[nodiscard]] std::expected<R, Error> InvokeAs(std::string_view name, Obj &&obj, A &&...a) const
+    {
+      using ObjT = std::remove_reference_t<Obj>;
+      if constexpr (std::is_const_v<ObjT>)
+      {
+        return InvokeAs<R>(name,
+                           const_cast<void *>(static_cast<const void *>(std::addressof(obj))),
+                           std::forward<A>(a)...);
+      }
+      else
+      {
+        return InvokeAs<R>(name, static_cast<void *>(std::addressof(obj)), std::forward<A>(a)...);
+      }
     }
 
     // Constructors
@@ -486,17 +638,36 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<AttributeView, Error> Attribute(std::string_view key) const;
 
   private:
+    template <class Sig, std::size_t... I>
+    [[nodiscard]] std::expected<Method, Error> ResolveMethodBySignature(std::string_view name, std::index_sequence<I...>) const
+    {
+      using Traits = detail::SignatureTraits<Sig>;
+      return ResolveMethod<typename Traits::Ret, std::tuple_element_t<I, typename Traits::Args>...>(name);
+    }
+
     TypeHandle m_h{};
   };
 
   // Queries
   ExpectedType GetType(std::string_view name);
+  std::optional<Type> FindType(std::string_view name);
 
   template <class T>
-  Type TypeOf()
+  Type GetType()
   {
     auto idx = detail::EnsureRegistered<T>();
     return Type{TypeHandle{idx}};
+  }
+
+  template <class T>
+  std::optional<Type> TryGetType()
+  {
+    using U = std::remove_cvref_t<T>;
+    auto &reg = detail::GetRegistry();
+    const auto tid = detail::TypeIdOf<U>();
+    if (auto *p = reg.byTypeId.GetPtr(tid))
+      return Type{TypeHandle{*p}};
+    return std::nullopt;
   }
 
   // Optional eager registration helper

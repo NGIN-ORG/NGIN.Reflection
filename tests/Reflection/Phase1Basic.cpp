@@ -10,7 +10,7 @@ struct User {
   float score{};
 
   friend void ngin_reflect(NGIN::Reflection::Tag<User>,
-                           NGIN::Reflection::Builder<User> &b) {
+                           NGIN::Reflection::TypeBuilder<User> &b) {
     b.field<&User::id>("id");
     b.field<&User::score>("score");
   }
@@ -19,19 +19,19 @@ struct User {
 struct Named {
   int value{};
   friend void ngin_reflect(NGIN::Reflection::Tag<Named>,
-                           NGIN::Reflection::Builder<Named> &b) {
+                           NGIN::Reflection::TypeBuilder<Named> &b) {
     b.set_name("My::Named");
     b.field<&Named::value>("v");
   }
 };
 } // namespace DemoPhase1
 
-TEST_CASE("TypeOfInfersNamesAndFields", "[reflection][Phase1Basic]") {
+TEST_CASE("GetTypeInfersNamesAndFields", "[reflection][Phase1Basic]") {
   using namespace NGIN::Reflection;
   using DemoPhase1::User;
 
-  auto t = TypeOf<User>();
-  INFO("TypeOf<User> must be IsValid");
+  auto t = GetType<User>();
+  INFO("GetType<User> must be IsValid");
   CHECK(t.IsValid());
 
   INFO("qualified name should default from Meta::TypeName");
@@ -52,7 +52,7 @@ TEST_CASE("ExplicitNamesAndAliasesAreRespected",
   using namespace NGIN::Reflection;
   using DemoPhase1::Named;
 
-  auto t = TypeOf<Named>();
+  auto t = GetType<Named>();
   CHECK(t.QualifiedName() == std::string_view{"My::Named"});
   auto f = t.GetField("v");
   CHECK(f.has_value());

@@ -12,7 +12,7 @@ struct H {
   long f(long) const { return 2; }
   double f(double) const { return 3.0; }
   friend void ngin_reflect(NGIN::Reflection::Tag<H>,
-                           NGIN::Reflection::Builder<H> &b) {
+                           NGIN::Reflection::TypeBuilder<H> &b) {
     b.method<static_cast<int (H::*)(int) const>(&H::f)>("f");
     b.method<static_cast<long (H::*)(long) const>(&H::f)>("f");
     b.method<static_cast<double (H::*)(double) const>(&H::f)>("f");
@@ -25,7 +25,7 @@ TEST_CASE("CharPromotesToIntOverload",
   using namespace NGIN::Reflection;
   using SmallDemo::H;
 
-  auto t = TypeOf<H>();
+  auto t = GetType<H>();
   H h{};
   Any arg{static_cast<char>(5)};
   auto m = t.ResolveMethod("f", &arg, 1).value();
@@ -38,7 +38,7 @@ TEST_CASE("ShortPromotesToIntOverload",
   using namespace NGIN::Reflection;
   using SmallDemo::H;
 
-  auto t = TypeOf<H>();
+  auto t = GetType<H>();
   H h{};
   Any arg{static_cast<short>(7)};
   auto m = t.ResolveMethod("f", &arg, 1).value();
@@ -51,7 +51,7 @@ TEST_CASE("FloatPromotesToDoubleOverload",
   using namespace NGIN::Reflection;
   using SmallDemo::H;
 
-  auto t = TypeOf<H>();
+  auto t = GetType<H>();
   H h{};
   Any arg{1.5f};
   auto m = t.ResolveMethod("f", &arg, 1).value();
@@ -64,7 +64,7 @@ TEST_CASE("LongPrefersLongOverloadOverInt",
   using namespace NGIN::Reflection;
   using SmallDemo::H;
 
-  auto t = TypeOf<H>();
+  auto t = GetType<H>();
   H h{};
   Any arg{static_cast<long>(9)};
   auto m = t.ResolveMethod("f", &arg, 1).value();

@@ -11,7 +11,7 @@ struct M {
   double mul(double a, double b) const { return a * b; }
   void ping(int) const {}
   friend void ngin_reflect(NGIN::Reflection::Tag<M>,
-                           NGIN::Reflection::Builder<M> &b) {
+                           NGIN::Reflection::TypeBuilder<M> &b) {
     b.method<static_cast<int (M::*)(int, int) const>(&M::mul)>("mul");
     b.method<static_cast<double (M::*)(double, double) const>(&M::mul)>("mul");
     b.method<static_cast<void (M::*)(int) const>(&M::ping)>("ping");
@@ -24,10 +24,10 @@ TEST_CASE("MethodInvocationWithTypedArguments",
   using namespace NGIN::Reflection;
   using TIDemo::M;
 
-  auto t = TypeOf<M>();
+  auto t = GetType<M>();
   M obj{};
   auto m = t.ResolveMethod<int, int, int>("mul").value();
-  auto out = m.InvokeAs<int>(&obj, 3, 4).value();
+  auto out = m.InvokeAs<int>(obj, 3, 4).value();
   CHECK(out == 12);
 }
 
@@ -36,9 +36,9 @@ TEST_CASE("TypeInvocationWithTypedArguments",
   using namespace NGIN::Reflection;
   using TIDemo::M;
 
-  auto t = TypeOf<M>();
+  auto t = GetType<M>();
   M obj{};
-  auto out = t.InvokeAs<int, int, int>("mul", &obj, 5, 6).value();
+  auto out = t.InvokeAs<int, int, int>("mul", obj, 5, 6).value();
   CHECK(out == 30);
 }
 
@@ -47,9 +47,9 @@ TEST_CASE("TypedInvokeSupportsVoidReturn",
   using namespace NGIN::Reflection;
   using TIDemo::M;
 
-  auto t = TypeOf<M>();
+  auto t = GetType<M>();
   M obj{};
-  auto r = t.InvokeAs<void, int>("ping", &obj, 1);
+  auto r = t.InvokeAs<void, int>("ping", obj, 1);
   CHECK(r.has_value());
 }
 
@@ -58,9 +58,9 @@ TEST_CASE("TypedInvokeHandlesDoubleOverload",
   using namespace NGIN::Reflection;
   using TIDemo::M;
 
-  auto t = TypeOf<M>();
+  auto t = GetType<M>();
   M obj{};
-  auto out = t.InvokeAs<double, double, double>("mul", &obj, 1.5, 2.0).value();
+  auto out = t.InvokeAs<double, double, double>("mul", obj, 1.5, 2.0).value();
   CHECK(out == Catch::Approx(3.0));
 }
 
@@ -68,7 +68,7 @@ TEST_CASE("ResolveReportsMissingOverloads", "[reflection][TypedInvoke]") {
   using namespace NGIN::Reflection;
   using TIDemo::M;
 
-  auto t = TypeOf<M>();
+  auto t = GetType<M>();
   auto m = t.ResolveMethod<int, int, double>("mul");
   CHECK_FALSE(m.has_value());
 }

@@ -29,7 +29,7 @@ namespace LookupBench
     int a18{};
     int a19{};
 
-    friend void ngin_reflect(NGIN::Reflection::Tag<ManyFields>, NGIN::Reflection::Builder<ManyFields> &b)
+    friend void ngin_reflect(NGIN::Reflection::Tag<ManyFields>, NGIN::Reflection::TypeBuilder<ManyFields> &b)
     {
       b.field<&ManyFields::a0>("a0");
       b.field<&ManyFields::a1>("a1");
@@ -60,7 +60,7 @@ int main()
   using namespace NGIN::Reflection;
   using LookupBench::ManyFields;
 
-  auto t = TypeOf<ManyFields>();
+  auto t = GetType<ManyFields>();
 
   // Warmup lookup (ensure interning of the names used below)
   (void)t.GetField("a0");

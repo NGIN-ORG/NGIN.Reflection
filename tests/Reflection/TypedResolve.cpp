@@ -10,7 +10,7 @@ struct M {
   float mul(float a, float b) const { return a * b; }
   void ping(int) const {}
   friend void ngin_reflect(NGIN::Reflection::Tag<M>,
-                           NGIN::Reflection::Builder<M> &b) {
+                           NGIN::Reflection::TypeBuilder<M> &b) {
     b.method<static_cast<int (M::*)(int, int) const>(&M::mul)>("mul");
     b.method<static_cast<float (M::*)(float, float) const>(&M::mul)>("mul");
     b.method<static_cast<void (M::*)(int) const>(&M::ping)>("ping");
@@ -23,7 +23,7 @@ TEST_CASE("ResolveSelectsOverloadBySignature",
   using namespace NGIN::Reflection;
   using TRDemo::M;
 
-  auto t = TypeOf<M>();
+  auto t = GetType<M>();
   auto m1 = t.ResolveMethod<int, int, int>("mul").value();
   auto m2 = t.ResolveMethod<float, float, float>("mul").value();
   M obj{};
@@ -33,11 +33,23 @@ TEST_CASE("ResolveSelectsOverloadBySignature",
   CHECK(m2.Invoke(&obj, ff, 2).value().Cast<float>() == 10.0f);
 }
 
+TEST_CASE("ResolveAcceptsFunctionSignatureType",
+          "[reflection][TypedResolve]") {
+  using namespace NGIN::Reflection;
+  using TRDemo::M;
+
+  auto t = GetType<M>();
+  auto m = t.ResolveMethod<int(int, int)>("mul").value();
+  M obj{};
+  Any ii[2] = {Any{3}, Any{4}};
+  CHECK(m.Invoke(&obj, ii, 2).value().Cast<int>() == 12);
+}
+
 TEST_CASE("ResolveSupportsVoidReturns", "[reflection][TypedResolve]") {
   using namespace NGIN::Reflection;
   using TRDemo::M;
 
-  auto t = TypeOf<M>();
+  auto t = GetType<M>();
   auto m = t.ResolveMethod<void, int>("ping").value();
   M obj{};
   Any arg{1};

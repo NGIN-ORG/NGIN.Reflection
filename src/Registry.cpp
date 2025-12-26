@@ -1,6 +1,7 @@
 #include <NGIN/Reflection/Registry.hpp>
 #include <NGIN/Reflection/NameUtils.hpp>
 #include <cstring>
+#include <optional>
 
 namespace NGIN::Reflection::detail
 {
@@ -98,6 +99,19 @@ namespace NGIN::Reflection
         return Field{FieldHandle{m_h.index, *p}};
     }
     return std::unexpected(Error{ErrorCode::NotFound, "field not found"});
+  }
+
+  std::optional<Field> Type::FindField(std::string_view name) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *p = tdesc.fieldIndex.GetPtr(nid))
+        return Field{FieldHandle{m_h.index, *p}};
+    }
+    return std::nullopt;
   }
 
   // Field
@@ -239,6 +253,18 @@ namespace NGIN::Reflection
     return std::unexpected(Error{ErrorCode::NotFound, "type not found"});
   }
 
+  std::optional<Type> FindType(std::string_view name)
+  {
+    auto &reg = GetRegistry();
+    NameId nid{};
+    if (detail::FindNameId(name, nid))
+    {
+      if (auto *p = reg.byName.GetPtr(nid))
+        return Type{TypeHandle{*p}};
+    }
+    return std::nullopt;
+  }
+
   // Type: methods and attributes
   NGIN::UIntSize Type::MethodCount() const
   {
@@ -259,6 +285,29 @@ namespace NGIN::Reflection
       if (v[i].name == name)
         return Method{m_h.index, static_cast<NGIN::UInt32>(i)};
     return std::unexpected(Error{ErrorCode::NotFound, "method not found"});
+  }
+
+  std::optional<Method> Type::FindMethod(std::string_view name) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &v = reg.types[m_h.index].methods;
+    for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
+      if (v[i].name == name)
+        return Method{m_h.index, static_cast<NGIN::UInt32>(i)};
+    return std::nullopt;
+  }
+
+  MethodOverloads Type::FindMethods(std::string_view name) const
+  {
+    const auto &reg = GetRegistry();
+    const auto &tdesc = reg.types[m_h.index];
+    NameId nid{};
+    if (!detail::FindNameId(name, nid))
+      return MethodOverloads{};
+    const auto *vec = tdesc.methodOverloads.GetPtr(nid);
+    if (!vec)
+      return MethodOverloads{};
+    return MethodOverloads{m_h.index, vec};
   }
 
   enum class NumKind

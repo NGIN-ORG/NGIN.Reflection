@@ -10,7 +10,7 @@ namespace NGIN::Reflection
   template <>
   struct Describe<std::pair<int, int>>
   {
-    static void Do(Builder<std::pair<int, int>> &b)
+    static void Do(TypeBuilder<std::pair<int, int>> &b)
     {
       b.set_name("std::pair<int,int>");
       b.field<&std::pair<int, int>::first>("first");
@@ -23,7 +23,7 @@ TEST_CASE("DescribeFallbackExposesFields", "[reflection][DescribeFallback]")
 {
   using namespace NGIN::Reflection;
 
-  auto t = TypeOf<std::pair<int, int>>();
+  auto t = GetType<std::pair<int, int>>();
   CHECK(t.FieldCount() == NGIN::UIntSize{2});
 
   auto fFirst = t.GetField("first").value();
@@ -45,8 +45,8 @@ TEST_CASE("DescribeAppliesCvrefNormalization",
 {
   using namespace NGIN::Reflection;
 
-  auto t0 = TypeOf<std::pair<int, int>>();
-  auto t1 = TypeOf<const std::pair<int, int> &>();
+  auto t0 = GetType<std::pair<int, int>>();
+  auto t1 = GetType<const std::pair<int, int> &>();
 
   CHECK(t0.GetTypeId() == t1.GetTypeId());
   CHECK(t0.QualifiedName() == t1.QualifiedName());

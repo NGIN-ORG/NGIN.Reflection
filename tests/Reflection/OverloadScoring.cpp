@@ -13,7 +13,7 @@ struct S {
   long long f(long long) const { return 4; }
   unsigned long long f(unsigned long long) const { return 5; }
   friend void ngin_reflect(NGIN::Reflection::Tag<S>,
-                           NGIN::Reflection::Builder<S> &b) {
+                           NGIN::Reflection::TypeBuilder<S> &b) {
     b.method<static_cast<int (S::*)(int) const>(&S::f)>("f");
     b.method<static_cast<double (S::*)(double) const>(&S::f)>("f");
     b.method<static_cast<float (S::*)(float) const>(&S::f)>("f");
@@ -27,7 +27,7 @@ struct S2 {
   int g(int) const { return 1; }
   double g(double) const { return 2.0; }
   friend void ngin_reflect(NGIN::Reflection::Tag<S2>,
-                           NGIN::Reflection::Builder<S2> &b) {
+                           NGIN::Reflection::TypeBuilder<S2> &b) {
     b.method<static_cast<int (S2::*)(int) const>(&S2::g)>("g");
     b.method<static_cast<double (S2::*)(double) const>(&S2::g)>("g");
   }
@@ -39,7 +39,7 @@ TEST_CASE("ExactMatchesOutrankConversions",
   using namespace NGIN::Reflection;
   using ScoreDemo::S;
 
-  auto t = TypeOf<S>();
+  auto t = GetType<S>();
   S s{};
   Any arg{3.14};
   auto m = t.ResolveMethod("f", &arg, 1).value();
@@ -52,7 +52,7 @@ TEST_CASE("PromotionsOutrankConversions",
   using namespace NGIN::Reflection;
   using ScoreDemo::S2;
 
-  auto t = TypeOf<S2>();
+  auto t = GetType<S2>();
   S2 s{};
   Any arg{2.0f};
   auto m = t.ResolveMethod("g", &arg, 1).value();
@@ -65,7 +65,7 @@ TEST_CASE("NarrowingConversionsArePenalized",
   using namespace NGIN::Reflection;
   using ScoreDemo::S;
 
-  auto t = TypeOf<S>();
+  auto t = GetType<S>();
   S s{};
   Any arg{3.14};
   auto m = t.ResolveMethod("f", &arg, 1).value();
@@ -78,7 +78,7 @@ TEST_CASE("UnsignedOverloadsHandleUnsignedInputs",
   using namespace NGIN::Reflection;
   using ScoreDemo::S;
 
-  auto t = TypeOf<S>();
+  auto t = GetType<S>();
   S s{};
   Any arg{42u};
   auto m = t.ResolveMethod("f", &arg, 1).value();

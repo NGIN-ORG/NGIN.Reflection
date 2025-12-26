@@ -16,7 +16,7 @@ namespace BenchDemo
     int n{0};
     Vec2 p{1.0f, 2.0f};
     int add(int v) const { return n + v; }
-    friend void ngin_reflect(Reflection::Tag<Obj>, Reflection::Builder<Obj> &b)
+    friend void ngin_reflect(Reflection::Tag<Obj>, Reflection::TypeBuilder<Obj> &b)
     {
       b.field<&Obj::n>("n");
       b.field<&Obj::p>("p");
@@ -30,7 +30,7 @@ int main()
   using namespace NGIN::Reflection;
   using BenchDemo::Obj;
 
-  auto t = TypeOf<Obj>();
+  auto t = GetType<Obj>();
   auto m_add = t.GetMethod("add").value();
 
   Benchmark::Register([&](BenchmarkContext &ctx)

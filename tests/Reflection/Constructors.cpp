@@ -13,7 +13,7 @@ namespace CtorDemo
     Point() = default;
     Point(int a, int b) : x(a), y(b) {}
     friend void ngin_reflect(NGIN::Reflection::Tag<Point>,
-                             NGIN::Reflection::Builder<Point> &b)
+                             NGIN::Reflection::TypeBuilder<Point> &b)
     {
       b.set_name("CtorDemo::Point");
       b.field<&Point::x>("x");
@@ -29,7 +29,7 @@ TEST_CASE("DefaultConstructorProducesZeroPoint",
   using namespace NGIN::Reflection;
   using CtorDemo::Point;
 
-  auto t = TypeOf<Point>();
+  auto t = GetType<Point>();
   auto any = t.DefaultConstruct().value();
   auto p = any.Cast<Point>();
   CHECK(p.x == 0);
@@ -42,7 +42,7 @@ TEST_CASE("ParameterizedConstructorAcceptsInts",
   using namespace NGIN::Reflection;
   using CtorDemo::Point;
 
-  auto t = TypeOf<Point>();
+  auto t = GetType<Point>();
   Any args[2] = {Any{3}, Any{4}};
   auto any = t.Construct(args, 2).value();
   auto p = any.Cast<Point>();
@@ -56,7 +56,7 @@ TEST_CASE("ParameterizedConstructorConvertsArguments",
   using namespace NGIN::Reflection;
   using CtorDemo::Point;
 
-  auto t = TypeOf<Point>();
+  auto t = GetType<Point>();
   Any args[2] = {Any{3.5}, Any{4.0f}};
   auto any = t.Construct(args, 2).value();
   auto p = any.Cast<Point>();

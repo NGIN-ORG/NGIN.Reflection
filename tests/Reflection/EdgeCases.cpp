@@ -14,7 +14,7 @@ namespace EdgeDemo
     float score{};
   };
   inline void ngin_reflect(NGIN::Reflection::Tag<User>,
-                           NGIN::Reflection::Builder<User> &b)
+                           NGIN::Reflection::TypeBuilder<User> &b)
   {
     b.field<&User::id>("id");
     b.field<&User::score>("score");
@@ -26,7 +26,7 @@ namespace EdgeDemo
     float mul(float a, float b) const { return a * b; }
     double mul(int a, double b) const { return a * b; }
     friend void ngin_reflect(NGIN::Reflection::Tag<Math>,
-                             NGIN::Reflection::Builder<Math> &b)
+                             NGIN::Reflection::TypeBuilder<Math> &b)
     {
       b.method<static_cast<int (Math::*)(int, int) const>(&Math::mul)>("mul");
       b.method<static_cast<float (Math::*)(float, float) const>(&Math::mul)>(
@@ -45,7 +45,7 @@ TEST_CASE("GetTypeReportsMissingType", "[reflection][EdgeCases]")
 TEST_CASE("MissingFieldLookupsFail", "[reflection][EdgeCases]")
 {
   using EdgeDemo::User;
-  auto t = NGIN::Reflection::TypeOf<User>();
+  auto t = NGIN::Reflection::GetType<User>();
   CHECK_FALSE(t.GetField("nope").has_value());
 }
 
@@ -54,7 +54,7 @@ TEST_CASE("InvokeDetectsWrongArity", "[reflection][EdgeCases]")
   using EdgeDemo::Math;
   using namespace NGIN::Reflection;
 
-  auto t = TypeOf<Math>();
+  auto t = GetType<Math>();
   auto m = t.GetMethod("mul").value();
   Math math{};
 
@@ -71,7 +71,7 @@ TEST_CASE("ResolveChoosesOverloadsCorrectly", "[reflection][EdgeCases]")
   using EdgeDemo::Math;
   using namespace NGIN::Reflection;
 
-  auto t = TypeOf<Math>();
+  auto t = GetType<Math>();
   Math math{};
 
   Any ii[2] = {Any{3}, Any{4}};
@@ -92,7 +92,7 @@ TEST_CASE("ResolveRejectsInvalidOverloads", "[reflection][EdgeCases]")
   using EdgeDemo::Math;
   using namespace NGIN::Reflection;
 
-  auto t = TypeOf<Math>();
+  auto t = GetType<Math>();
 
   Any bad[2] = {Any{std::string{"x"}}, Any{2}};
   auto mr = t.ResolveMethod("mul", bad, 2);
@@ -104,7 +104,7 @@ TEST_CASE("AttributesAbsentWhenNotDeclared", "[reflection][EdgeCases]")
   using EdgeDemo::User;
   using namespace NGIN::Reflection;
 
-  auto t = TypeOf<User>();
+  auto t = GetType<User>();
   auto f = t.GetField("id").value();
   CHECK_FALSE(f.attribute("nope").has_value());
 }

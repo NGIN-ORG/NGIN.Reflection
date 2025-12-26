@@ -1,5 +1,5 @@
-// Builder.hpp
-// Public Builder<T> used inside ADL friend to describe fields (Phase 1)
+// TypeBuilder.hpp
+// Public TypeBuilder<T> used inside ADL friend to describe fields (Phase 1)
 #pragma once
 
 #include <NGIN/Reflection/Registry.hpp>
@@ -16,14 +16,14 @@ namespace NGIN::Reflection
 {
 
   template <class T>
-  class Builder
+  class TypeBuilder
   {
   public:
     // Note: constructed by the registry when invoking ADL reflect; binds to a specific type index.
-    explicit Builder(NGIN::UInt32 typeIndex) : m_index(typeIndex) {}
+    explicit TypeBuilder(NGIN::UInt32 typeIndex) : m_index(typeIndex) {}
 
     // Optional name overrides (qualified or unqualified). If not set, defaults to Meta::TypeName<T>.
-    Builder &set_name(std::string_view qualified)
+    TypeBuilder &set_name(std::string_view qualified)
     {
       auto &reg = detail::GetRegistry();
       auto id = detail::InternNameId(qualified);
@@ -36,7 +36,7 @@ namespace NGIN::Reflection
 
     // Add a public data member as a field; name optional and auto-derived if omitted.
     template <auto MemberPtr>
-    Builder &field(std::string_view name = {})
+    TypeBuilder &field(std::string_view name = {})
     {
       using MemberT = detail::MemberTypeT<MemberPtr>;
       auto &reg = detail::GetRegistry();
@@ -65,14 +65,14 @@ namespace NGIN::Reflection
 
     // Add a const/non-const member method. Name required.
     template <auto MemFn>
-    Builder &method(std::string_view name);
+    TypeBuilder &method(std::string_view name);
 
     // Add a constructor descriptor for T with parameter types A...
     template <class... A>
-    Builder &constructor();
+    TypeBuilder &constructor();
 
     // Attach a typed attribute (type-level)
-    Builder &attribute(std::string_view key, const AttrValue &value)
+    TypeBuilder &attribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
       reg.types[m_index].attributes.PushBack(AttributeDesc{key, value});
@@ -81,7 +81,7 @@ namespace NGIN::Reflection
 
     // Attach attribute to a specific field by member pointer.
     template <auto MemberPtr>
-    Builder &field_attribute(std::string_view key, const AttrValue &value)
+    TypeBuilder &field_attribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
       auto *fn = &detail::FieldGetterMut<MemberPtr>;
@@ -99,7 +99,7 @@ namespace NGIN::Reflection
 
     // Attach attribute to a specific method by member function pointer.
     template <auto MemFn>
-    Builder &method_attribute(std::string_view key, const AttrValue &value);
+    TypeBuilder &method_attribute(std::string_view key, const AttrValue &value);
 
     // No-op in Phase 1; present for API symmetry.
     constexpr void build() const noexcept {}
@@ -215,7 +215,7 @@ namespace NGIN::Reflection
 
   template <class T>
   template <auto MemFn>
-  inline Builder<T> &Builder<T>::method(std::string_view name)
+  inline TypeBuilder<T> &TypeBuilder<T>::method(std::string_view name)
   {
     using Traits = detail::MethodTraits<decltype(MemFn)>;
     static_assert(std::is_same_v<typename Traits::Class, T>, "Method must belong to T");
@@ -264,7 +264,7 @@ namespace NGIN::Reflection
   // ==== Constructor registration ====
   template <class T>
   template <class... A>
-  inline Builder<T> &Builder<T>::constructor()
+  inline TypeBuilder<T> &TypeBuilder<T>::constructor()
   {
     auto &reg = detail::GetRegistry();
     detail::CtorRuntimeDesc c{};
@@ -306,7 +306,7 @@ namespace NGIN::Reflection
   // Implement method_attribute after MethodTraits are defined
   template <class T>
   template <auto MemFn>
-  inline Builder<T> &Builder<T>::method_attribute(std::string_view key, const AttrValue &value)
+  inline TypeBuilder<T> &TypeBuilder<T>::method_attribute(std::string_view key, const AttrValue &value)
   {
     using Traits = detail::MethodTraits<decltype(MemFn)>;
     auto &reg = detail::GetRegistry();
