@@ -1,4 +1,4 @@
-// ABIMerge.hpp — Host-side merge API for ABI V1 blobs (skeleton)
+// ABIMerge.hpp - Host-side merge API for ABI V1 blobs.
 #pragma once
 
 #include <NGIN/Reflection/ABI.hpp>
@@ -13,8 +13,7 @@ namespace NGIN::Reflection
   };
 
   // Merge an exported ABI registry into the process-local registry.
-  // This skeleton validates header fields and is intended to be extended to
-  // deduplicate by type_id and reindex handles.
+  // Validates the blob, merges by type_id, and tracks conflicts.
   bool MergeRegistryV1(const NGINReflectionRegistryV1 &module,
                        MergeStats *stats = nullptr,
                        const char **error = nullptr) noexcept;

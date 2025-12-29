@@ -177,13 +177,22 @@ extern "C" NGIN_REFLECTION_API bool NGINReflectionExportV1(NGINReflectionRegistr
   hdr.ctorConstructOff = hdr.methodInvokeOff + methodFpSize;
   hdr.totalSize = hdr.ctorConstructOff + ctorFpSize;
 
-  // Allocate blob and lay out sections
+  // Allocate/reuse blob and lay out sections.
+  static void *s_blob = nullptr;
+  static std::uint64_t s_blobCapacity = 0;
   NGIN::Memory::SystemAllocator alloc{};
-  void *mem = alloc.Allocate(static_cast<NGIN::UIntSize>(hdr.totalSize), alignof(std::max_align_t));
-  if (!mem)
-    return false;
+  if (s_blobCapacity < hdr.totalSize)
+  {
+    void *newMem = alloc.Allocate(static_cast<NGIN::UIntSize>(hdr.totalSize), alignof(std::max_align_t));
+    if (!newMem)
+      return false;
+    if (s_blob)
+      alloc.Deallocate(s_blob, static_cast<NGIN::UIntSize>(s_blobCapacity), alignof(std::max_align_t));
+    s_blob = newMem;
+    s_blobCapacity = hdr.totalSize;
+  }
 
-  auto base = static_cast<std::uint8_t *>(mem);
+  auto base = static_cast<std::uint8_t *>(s_blob);
   // Zero memory for determinism
   std::memset(base, 0, static_cast<std::size_t>(hdr.totalSize));
 

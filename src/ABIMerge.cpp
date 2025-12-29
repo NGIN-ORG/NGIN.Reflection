@@ -13,17 +13,18 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
                                        MergeStats *stats,
                                        const char **error) noexcept
 {
-  if (!module.header || !module.blob)
-  {
-    if (error) *error = "null registry";
+  auto fail = [&](const char *msg) noexcept {
+    if (error)
+      *error = msg;
     return false;
-  }
+  };
+  if (!module.header || !module.blob)
+    return fail("null registry");
   const auto &h = *module.header;
   if (h.version != kV1)
-  {
-    if (error) *error = "unsupported version";
-    return false;
-  }
+    return fail("unsupported version");
+  if (h.totalSize > module.blobSize)
+    return fail("blob size mismatch");
   // Basic bounds sanity: sections within blob
   auto within = [&](std::uint64_t off, std::uint64_t sz) -> bool {
     if (off == 0 && sz == 0) return true; // allow empty
@@ -36,16 +37,19 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   const std::uint64_t ctorsSize   = h.ctorCount    * sizeof(NGINReflectionCtorV1);
   const std::uint64_t attrsSize   = h.attributeCount * sizeof(NGINReflectionAttrV1);
   const std::uint64_t paramsSize  = h.paramCount   * sizeof(std::uint64_t);
+  const std::uint64_t methodFpSize = h.methodCount * sizeof(NGINReflectionMethodInvokeFnV1);
+  const std::uint64_t ctorFpSize = h.ctorCount * sizeof(NGINReflectionCtorConstructFnV1);
   if (!within(h.typesOff, typesSize) ||
       !within(h.fieldsOff, fieldsSize) ||
       !within(h.methodsOff, methodsSize) ||
       !within(h.ctorsOff, ctorsSize) ||
       !within(h.attrsOff, attrsSize) ||
       !within(h.paramsOff, paramsSize) ||
-      !within(h.stringsOff, h.stringBytes))
+      !within(h.stringsOff, h.stringBytes) ||
+      (h.methodInvokeOff && !within(h.methodInvokeOff, methodFpSize)) ||
+      (h.ctorConstructOff && !within(h.ctorConstructOff, ctorFpSize)))
   {
-    if (error) *error = "corrupt offsets";
-    return false;
+    return fail("corrupt offsets");
   }
 
   // Map raw pointers to sections
@@ -59,6 +63,38 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   const auto *strings = reinterpret_cast<const char                   *>(base + h.stringsOff);
   const auto *methodFp= (h.methodInvokeOff ? reinterpret_cast<const NGINReflectionMethodInvokeFnV1 *>(base + h.methodInvokeOff) : nullptr);
   const auto *ctorFp  = (h.ctorConstructOff ? reinterpret_cast<const NGINReflectionCtorConstructFnV1 *>(base + h.ctorConstructOff) : nullptr);
+
+  auto validRange = [](std::uint64_t begin, std::uint64_t count, std::uint64_t limit) -> bool {
+    return begin <= limit && count <= (limit - begin);
+  };
+
+  auto validStringRef = [&](NGINReflectionStrRefV1 r) -> bool {
+    if (r.size == 0)
+      return true;
+    const std::uint64_t size = static_cast<std::uint64_t>(r.size);
+    if (r.offset > h.stringBytes)
+      return false;
+    return size <= (h.stringBytes - r.offset);
+  };
+
+  auto validAttr = [&](const NGINReflectionAttrV1 &a) -> bool {
+    if (!validStringRef(a.key))
+      return false;
+    switch (a.kind)
+    {
+      case NGINReflectionAttrKindV1::Bool:
+      case NGINReflectionAttrKindV1::Int:
+      case NGINReflectionAttrKindV1::Dbl:
+      case NGINReflectionAttrKindV1::Str:
+      case NGINReflectionAttrKindV1::Type:
+        break;
+      default:
+        return false;
+    }
+    if (a.kind == NGINReflectionAttrKindV1::Str && !validStringRef(a.value.sref))
+      return false;
+    return true;
+  };
 
   auto view = [&](NGINReflectionStrRefV1 r) -> std::string_view {
     if (r.size == 0) return {};
@@ -89,10 +125,18 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   for (std::uint64_t i = 0; i < h.typeCount; ++i)
   {
     const auto &ti = types[i];
+    if (!validStringRef(ti.qualifiedName) ||
+        !validRange(ti.fieldBegin, ti.fieldCount, h.fieldCount) ||
+        !validRange(ti.methodBegin, ti.methodCount, h.methodCount) ||
+        !validRange(ti.ctorBegin, ti.ctorCount, h.ctorCount) ||
+        !validRange(ti.attrBegin, ti.attrCount, h.attributeCount))
+      return fail("corrupt type record");
     const auto typeId = static_cast<NGIN::UInt64>(ti.typeId);
     if (reg.byTypeId.GetPtr(typeId))
     {
       ++conflicted;
+      methodGlobalIdx += ti.methodCount;
+      ctorGlobalIdx += ti.ctorCount;
       continue;
     }
 
@@ -111,6 +155,9 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
       for (std::uint32_t f = 0; f < ti.fieldCount; ++f)
       {
         const auto &fi = fields[ti.fieldBegin + f];
+        if (!validStringRef(fi.name) ||
+            !validRange(fi.attrBegin, fi.attrCount, h.attributeCount))
+          return fail("corrupt field record");
         FieldRuntimeDesc fd{};
         fd.name = InternName(view(fi.name));
         fd.nameId = InternNameId(fd.name);
@@ -120,7 +167,12 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         {
           fd.attributes.Reserve(fi.attrCount);
           for (std::uint32_t a = 0; a < fi.attrCount; ++a)
+          {
+            const auto &ai = attrs[fi.attrBegin + a];
+            if (!validAttr(ai))
+              return fail("corrupt attribute record");
             fd.attributes.PushBack(convertAttr(attrs[fi.attrBegin + a]));
+          }
         }
         rec.fieldIndex.Insert(fd.nameId, static_cast<NGIN::UInt32>(rec.fields.Size()));
         rec.fields.PushBack(std::move(fd));
@@ -134,6 +186,10 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
       for (std::uint32_t m = 0; m < ti.methodCount; ++m)
       {
         const auto &mi = methods[ti.methodBegin + m];
+        if (!validStringRef(mi.name) ||
+            !validRange(mi.paramBegin, mi.paramCount, h.paramCount) ||
+            !validRange(mi.attrBegin, mi.attrCount, h.attributeCount))
+          return fail("corrupt method record");
         MethodRuntimeDesc md{};
         md.name = InternName(view(mi.name));
         const auto nameId = InternNameId(md.name);
@@ -149,7 +205,12 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         {
           md.attributes.Reserve(mi.attrCount);
           for (std::uint32_t a = 0; a < mi.attrCount; ++a)
+          {
+            const auto &ai = attrs[mi.attrBegin + a];
+            if (!validAttr(ai))
+              return fail("corrupt attribute record");
             md.attributes.PushBack(convertAttr(attrs[mi.attrBegin + a]));
+          }
         }
         auto methodIdx = static_cast<NGIN::UInt32>(rec.methods.Size());
         rec.methods.PushBack(std::move(md));
@@ -175,6 +236,9 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
       for (std::uint32_t c = 0; c < ti.ctorCount; ++c)
       {
         const auto &ci = ctors[ti.ctorBegin + c];
+        if (!validRange(ci.paramBegin, ci.paramCount, h.paramCount) ||
+            !validRange(ci.attrBegin, ci.attrCount, h.attributeCount))
+          return fail("corrupt ctor record");
         CtorRuntimeDesc cd{};
         if (ci.paramCount)
         {
@@ -186,7 +250,12 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         {
           cd.attributes.Reserve(ci.attrCount);
           for (std::uint32_t a = 0; a < ci.attrCount; ++a)
+          {
+            const auto &ai = attrs[ci.attrBegin + a];
+            if (!validAttr(ai))
+              return fail("corrupt attribute record");
             cd.attributes.PushBack(convertAttr(attrs[ci.attrBegin + a]));
+          }
         }
         rec.constructors.PushBack(std::move(cd));
         if (ctorFp)
@@ -200,7 +269,12 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     {
       rec.attributes.Reserve(ti.attrCount);
       for (std::uint32_t a = 0; a < ti.attrCount; ++a)
+      {
+        const auto &ai = attrs[ti.attrBegin + a];
+        if (!validAttr(ai))
+          return fail("corrupt attribute record");
         rec.attributes.PushBack(convertAttr(attrs[ti.attrBegin + a]));
+      }
     }
 
     // Commit to registry
