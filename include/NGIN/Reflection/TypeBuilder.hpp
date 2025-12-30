@@ -314,7 +314,7 @@ namespace NGIN::Reflection
     };
 
     template <auto Getter>
-    static Any PropertyGet(const void *obj)
+    inline Any PropertyGet(const void *obj)
     {
       using Traits = GetterTraits<decltype(Getter)>;
       using C = typename Traits::Class;
@@ -766,7 +766,7 @@ namespace NGIN::Reflection
   {
     static_assert(std::is_base_of_v<BaseT, T>, "BaseT must be a base of T");
     auto &reg = detail::GetRegistry();
-    auto baseIndex = detail::EnsureRegistered<BaseT>();
+    auto baseIndex = detail::EnsureRegistered<BaseT>(reg.types[m_index].moduleId);
     detail::BaseRuntimeDesc b{};
     b.baseTypeIndex = baseIndex;
     b.baseTypeId = reg.types[baseIndex].typeId;
@@ -787,7 +787,7 @@ namespace NGIN::Reflection
     static_assert(std::is_same_v<typename Traits::Base, BaseT>, "Downcast base type mismatch");
     static_assert(std::is_same_v<typename Traits::Derived, T>, "Downcast derived type mismatch");
     auto &reg = detail::GetRegistry();
-    auto baseIndex = detail::EnsureRegistered<BaseT>();
+    auto baseIndex = detail::EnsureRegistered<BaseT>(reg.types[m_index].moduleId);
     detail::BaseRuntimeDesc b{};
     b.baseTypeIndex = baseIndex;
     b.baseTypeId = reg.types[baseIndex].typeId;

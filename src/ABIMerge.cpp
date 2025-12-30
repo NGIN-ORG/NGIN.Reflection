@@ -10,6 +10,7 @@ namespace
 }
 
 bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
+                                       const MergeOptions &options,
                                        MergeStats *stats,
                                        const char **error) noexcept
 {
@@ -119,6 +120,52 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   auto &reg = GetRegistry();
   std::uint64_t added = 0, conflicted = 0;
 
+  auto removeNameIndex = [&](NameId id, NGIN::UInt32 index) {
+    if (auto *p = reg.byName.GetPtr(id); p && *p == index)
+      reg.byName.Remove(id);
+  };
+
+  auto removeAliases = [&](std::string_view qn, NGIN::UInt32 index) {
+#if defined(_MSC_VER)
+    auto remove_alias = [&](std::string_view prefix) {
+      if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
+      {
+        auto trimmed = qn.substr(prefix.size());
+        NameId aliasId{};
+        if (FindNameId(trimmed, aliasId))
+          removeNameIndex(aliasId, index);
+      }
+    };
+    remove_alias("class ");
+    remove_alias("struct ");
+    remove_alias("enum ");
+    remove_alias("union ");
+#else
+    (void)qn;
+    (void)index;
+#endif
+  };
+
+  auto addAliases = [&](std::string_view qn, NGIN::UInt32 index) {
+#if defined(_MSC_VER)
+    auto add_alias = [&](std::string_view prefix) {
+      if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
+      {
+        auto trimmed = qn.substr(prefix.size());
+        auto aliasId = InternNameId(trimmed);
+        reg.byName.Insert(aliasId, index);
+      }
+    };
+    add_alias("class ");
+    add_alias("struct ");
+    add_alias("enum ");
+    add_alias("union ");
+#else
+    (void)qn;
+    (void)index;
+#endif
+  };
+
   std::uint32_t methodGlobalIdx = 0;
   std::uint32_t ctorGlobalIdx = 0;
 
@@ -132,18 +179,36 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         !validRange(ti.attrBegin, ti.attrCount, h.attributeCount))
       return fail("corrupt type record");
     const auto typeId = static_cast<NGIN::UInt64>(ti.typeId);
-    if (reg.byTypeId.GetPtr(typeId))
+    NGIN::UInt32 targetIndex = 0;
+    bool replaceExisting = false;
+    if (auto *existing = reg.byTypeId.GetPtr(typeId))
     {
-      ++conflicted;
-      methodGlobalIdx += ti.methodCount;
-      ctorGlobalIdx += ti.ctorCount;
-      continue;
+      if (options.mode == MergeOptions::MergeMode::RejectOnConflict)
+        return fail("type conflict");
+      const bool canReplace = options.mode == MergeOptions::MergeMode::ReplaceOnConflict &&
+                              (options.moduleId == 0 || reg.types[*existing].moduleId == options.moduleId);
+      if (!canReplace)
+      {
+        ++conflicted;
+        methodGlobalIdx += ti.methodCount;
+        ctorGlobalIdx += ti.ctorCount;
+        continue;
+      }
+      replaceExisting = true;
+      targetIndex = *existing;
+    }
+    else
+    {
+      targetIndex = static_cast<NGIN::UInt32>(reg.types.Size());
     }
 
     TypeRuntimeDesc rec{};
     rec.qualifiedNameId = InternNameId(view(ti.qualifiedName));
     rec.qualifiedName = NameFromId(rec.qualifiedNameId);
     rec.typeId = typeId;
+    rec.moduleId = options.moduleId;
+    if (replaceExisting)
+      rec.generation = static_cast<NGIN::UInt32>(reg.types[targetIndex].generation + 1u);
     rec.sizeBytes = ti.sizeBytes;
     rec.alignBytes = ti.alignBytes;
 
@@ -278,28 +343,20 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     }
 
     // Commit to registry
-    const auto idx = static_cast<NGIN::UInt32>(reg.types.Size());
-    reg.types.PushBack(std::move(rec));
-    reg.byTypeId.Insert(typeId, idx);
-    reg.byName.Insert(reg.types[idx].qualifiedNameId, idx);
-#if defined(_MSC_VER)
-    // Add alias without MSVC "class ", "struct ", etc. prefix for portable lookups
+    if (replaceExisting)
     {
-      auto qn = reg.types[idx].qualifiedName;
-      auto add_alias = [&](std::string_view prefix) {
-        if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
-        {
-          auto trimmed = qn.substr(prefix.size());
-          auto aliasId = InternNameId(trimmed);
-          reg.byName.Insert(aliasId, idx);
-        }
-      };
-      add_alias("class ");
-      add_alias("struct ");
-      add_alias("enum ");
-      add_alias("union ");
+      const auto &old = reg.types[targetIndex];
+      removeNameIndex(old.qualifiedNameId, targetIndex);
+      removeAliases(old.qualifiedName, targetIndex);
+      reg.types[targetIndex] = std::move(rec);
     }
-#endif
+    else
+    {
+      reg.types.PushBack(std::move(rec));
+      reg.byTypeId.Insert(typeId, targetIndex);
+    }
+    reg.byName.Insert(reg.types[targetIndex].qualifiedNameId, targetIndex);
+    addAliases(reg.types[targetIndex].qualifiedName, targetIndex);
     ++added;
   }
 
@@ -310,4 +367,12 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     stats->typesConflicted += conflicted;
   }
   return true;
+}
+
+bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
+                                       MergeStats *stats,
+                                       const char **error) noexcept
+{
+  MergeOptions options{};
+  return MergeRegistryV1(module, options, stats, error);
 }

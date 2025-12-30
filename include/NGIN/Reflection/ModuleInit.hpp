@@ -5,6 +5,7 @@
 #include <utility>
 
 #include <NGIN/Reflection/Registry.hpp>
+#include <NGIN/Hashing/FNV.hpp>
 
 namespace NGIN::Reflection
 {
@@ -18,7 +19,8 @@ namespace NGIN::Reflection
   {
   public:
     constexpr explicit ModuleRegistration(std::string_view moduleName) noexcept
-        : m_moduleName(moduleName)
+        : m_moduleName(moduleName),
+          m_moduleId(NGIN::Hashing::FNV1a64(moduleName.data(), moduleName.size()))
     {
     }
 
@@ -27,18 +29,23 @@ namespace NGIN::Reflection
       return m_moduleName;
     }
 
+    [[nodiscard]] constexpr ModuleId GetModuleId() const noexcept
+    {
+      return m_moduleId;
+    }
+
     /** Register a single reflected type. */
     template <class T>
     void RegisterType() const
     {
-      (void)detail::EnsureRegistered<T>();
+      (void)detail::EnsureRegistered<T>(m_moduleId);
     }
 
     /** Register multiple reflected types in one call. */
     template <class... T>
     void RegisterTypes() const
     {
-      (detail::EnsureRegistered<T>(), ...);
+      (detail::EnsureRegistered<T>(m_moduleId), ...);
     }
 
     /** Invoke a callable with direct access to the backing registry. */
@@ -50,6 +57,7 @@ namespace NGIN::Reflection
 
   private:
     std::string_view m_moduleName;
+    ModuleId m_moduleId{0};
   };
 
   /**

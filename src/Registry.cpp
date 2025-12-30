@@ -51,157 +51,252 @@ namespace NGIN::Reflection
 {
 
   using detail::GetRegistry;
+  namespace
+  {
+    constexpr std::string_view kStaleHandle = "stale handle";
+
+    bool IsTypeAlive(NGIN::UInt32 index, NGIN::UInt32 generation)
+    {
+      const auto &reg = GetRegistry();
+      return index < reg.types.Size() && reg.types[index].generation == generation;
+    }
+
+    bool IsTypeAlive(TypeHandle h)
+    {
+      if (!h.IsValid())
+        return false;
+      return IsTypeAlive(h.index, h.generation);
+    }
+
+    bool IsFieldAlive(FieldHandle h)
+    {
+      if (!IsTypeAlive(h.typeIndex, h.typeGeneration))
+        return false;
+      const auto &reg = GetRegistry();
+      return h.fieldIndex < reg.types[h.typeIndex].fields.Size();
+    }
+
+    bool IsPropertyAlive(PropertyHandle h)
+    {
+      if (!IsTypeAlive(h.typeIndex, h.typeGeneration))
+        return false;
+      const auto &reg = GetRegistry();
+      return h.propertyIndex < reg.types[h.typeIndex].properties.Size();
+    }
+
+    bool IsEnumValueAlive(EnumValueHandle h)
+    {
+      if (!IsTypeAlive(h.typeIndex, h.typeGeneration))
+        return false;
+      const auto &reg = GetRegistry();
+      return h.valueIndex < reg.types[h.typeIndex].enumInfo.values.Size();
+    }
+
+    bool IsCtorAlive(ConstructorHandle h)
+    {
+      if (!IsTypeAlive(h.typeIndex, h.typeGeneration))
+        return false;
+      const auto &reg = GetRegistry();
+      return h.ctorIndex < reg.types[h.typeIndex].constructors.Size();
+    }
+
+    bool IsBaseAlive(BaseHandle h)
+    {
+      if (!IsTypeAlive(h.typeIndex, h.typeGeneration))
+        return false;
+      const auto &reg = GetRegistry();
+      return h.baseIndex < reg.types[h.typeIndex].bases.Size();
+    }
+  } // namespace
 
   // Type
   std::string_view Type::QualifiedName() const
   {
+    if (!IsTypeAlive(m_h))
+      return {};
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].qualifiedName;
   }
 
   NGIN::UInt64 Type::GetTypeId() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].typeId;
   }
 
   NGIN::UIntSize Type::Size() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].sizeBytes;
   }
 
   NGIN::UIntSize Type::Alignment() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].alignBytes;
   }
 
   NGIN::UIntSize Type::FieldCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].fields.Size();
   }
 
   Field Type::FieldAt(NGIN::UIntSize i) const
   {
-    return Field{FieldHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+    if (!IsTypeAlive(m_h))
+      return Field{};
+    return Field{FieldHandle{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
   }
 
   ExpectedField Type::GetField(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = tdesc.fieldIndex.GetPtr(nid))
-        return Field{FieldHandle{m_h.index, *p}};
+        return Field{FieldHandle{m_h.index, *p, m_h.generation}};
     }
     return std::unexpected(Error{ErrorCode::NotFound, "field not found"});
   }
 
   std::optional<Field> Type::FindField(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::nullopt;
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = tdesc.fieldIndex.GetPtr(nid))
-        return Field{FieldHandle{m_h.index, *p}};
+        return Field{FieldHandle{m_h.index, *p, m_h.generation}};
     }
     return std::nullopt;
   }
 
   NGIN::UIntSize Type::PropertyCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].properties.Size();
   }
 
   Property Type::PropertyAt(NGIN::UIntSize i) const
   {
-    return Property{PropertyHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+    if (!IsTypeAlive(m_h))
+      return Property{};
+    return Property{PropertyHandle{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
   }
 
   ExpectedProperty Type::GetProperty(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = tdesc.propertyIndex.GetPtr(nid))
-        return Property{PropertyHandle{m_h.index, *p}};
+        return Property{PropertyHandle{m_h.index, *p, m_h.generation}};
     }
     return std::unexpected(Error{ErrorCode::NotFound, "property not found"});
   }
 
   std::optional<Property> Type::FindProperty(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::nullopt;
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = tdesc.propertyIndex.GetPtr(nid))
-        return Property{PropertyHandle{m_h.index, *p}};
+        return Property{PropertyHandle{m_h.index, *p, m_h.generation}};
     }
     return std::nullopt;
   }
 
   bool Type::IsEnum() const
   {
+    if (!IsTypeAlive(m_h))
+      return false;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].enumInfo.isEnum;
   }
 
   NGIN::UInt64 Type::EnumUnderlyingTypeId() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].enumInfo.underlyingTypeId;
   }
 
   NGIN::UIntSize Type::EnumValueCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].enumInfo.values.Size();
   }
 
   EnumValue Type::EnumValueAt(NGIN::UIntSize i) const
   {
-    return EnumValue{EnumValueHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+    if (!IsTypeAlive(m_h))
+      return EnumValue{};
+    return EnumValue{EnumValueHandle{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
   }
 
   ExpectedEnumValue Type::GetEnumValue(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = tdesc.enumInfo.valueIndex.GetPtr(nid))
-        return EnumValue{EnumValueHandle{m_h.index, *p}};
+        return EnumValue{EnumValueHandle{m_h.index, *p, m_h.generation}};
     }
     return std::unexpected(Error{ErrorCode::NotFound, "enum value not found"});
   }
 
   std::optional<EnumValue> Type::FindEnumValue(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::nullopt;
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = tdesc.enumInfo.valueIndex.GetPtr(nid))
-        return EnumValue{EnumValueHandle{m_h.index, *p}};
+        return EnumValue{EnumValueHandle{m_h.index, *p, m_h.generation}};
     }
     return std::nullopt;
   }
 
   std::expected<Any, Error> Type::ParseEnum(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     auto v = GetEnumValue(name);
     if (!v.has_value())
       return std::unexpected(v.error());
@@ -210,6 +305,8 @@ namespace NGIN::Reflection
 
   std::optional<std::string_view> Type::EnumName(const Any &value) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::nullopt;
     const auto &reg = GetRegistry();
     const auto &info = reg.types[m_h.index].enumInfo;
     if (!info.isEnum)
@@ -246,30 +343,40 @@ namespace NGIN::Reflection
   // Field
   std::string_view Field::Name() const
   {
+    if (!IsFieldAlive(m_h))
+      return {};
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].name;
   }
 
   NGIN::UInt64 Field::TypeId() const
   {
+    if (!IsFieldAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].typeId;
   }
 
   void *Field::GetMut(void *obj) const
   {
+    if (!IsFieldAlive(m_h))
+      return nullptr;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].GetMut(obj);
   }
 
   const void *Field::GetConst(const void *obj) const
   {
+    if (!IsFieldAlive(m_h))
+      return nullptr;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].GetConst(obj);
   }
 
   Any Field::GetAny(const void *obj) const
   {
+    if (!IsFieldAlive(m_h))
+      return Any::MakeVoid();
     const auto &reg = GetRegistry();
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
     if (f.Load)
@@ -279,6 +386,8 @@ namespace NGIN::Reflection
 
   std::expected<void, Error> Field::SetAny(void *obj, const Any &value) const
   {
+    if (!IsFieldAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
     if (f.Store)
@@ -298,12 +407,16 @@ namespace NGIN::Reflection
 
   NGIN::UIntSize Field::AttributeCount() const
   {
+    if (!IsFieldAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].fields[m_h.fieldIndex].attributes.Size();
   }
 
   AttributeView Field::AttributeAt(NGIN::UIntSize i) const
   {
+    if (!IsFieldAlive(m_h))
+      return AttributeView{};
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_h.typeIndex].fields[m_h.fieldIndex].attributes[i];
     return AttributeView{a.key, &a.value};
@@ -311,6 +424,8 @@ namespace NGIN::Reflection
 
   std::expected<AttributeView, Error> Field::Attribute(std::string_view key) const
   {
+    if (!IsFieldAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.typeIndex].fields[m_h.fieldIndex].attributes;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
@@ -322,18 +437,24 @@ namespace NGIN::Reflection
   // Property
   std::string_view Property::Name() const
   {
+    if (!IsPropertyAlive(m_h))
+      return {};
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].name;
   }
 
   NGIN::UInt64 Property::TypeId() const
   {
+    if (!IsPropertyAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].typeId;
   }
 
   Any Property::GetAny(const void *obj) const
   {
+    if (!IsPropertyAlive(m_h))
+      return Any::MakeVoid();
     const auto &reg = GetRegistry();
     const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
     if (p.Get)
@@ -343,6 +464,8 @@ namespace NGIN::Reflection
 
   std::expected<void, Error> Property::SetAny(void *obj, const Any &value) const
   {
+    if (!IsPropertyAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
     if (!p.Set)
@@ -352,12 +475,16 @@ namespace NGIN::Reflection
 
   NGIN::UIntSize Property::AttributeCount() const
   {
+    if (!IsPropertyAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes.Size();
   }
 
   AttributeView Property::AttributeAt(NGIN::UIntSize i) const
   {
+    if (!IsPropertyAlive(m_h))
+      return AttributeView{};
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes[i];
     return AttributeView{a.key, &a.value};
@@ -365,6 +492,8 @@ namespace NGIN::Reflection
 
   std::expected<AttributeView, Error> Property::Attribute(std::string_view key) const
   {
+    if (!IsPropertyAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.typeIndex].properties[m_h.propertyIndex].attributes;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
@@ -376,12 +505,16 @@ namespace NGIN::Reflection
   // EnumValue
   std::string_view EnumValue::Name() const
   {
+    if (!IsEnumValueAlive(m_h))
+      return {};
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].enumInfo.values[m_h.valueIndex].name;
   }
 
   Any EnumValue::Value() const
   {
+    if (!IsEnumValueAlive(m_h))
+      return Any::MakeVoid();
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].enumInfo.values[m_h.valueIndex].value;
   }
@@ -389,25 +522,41 @@ namespace NGIN::Reflection
   // Method
   std::string_view Method::GetName() const
   {
+    if (!IsTypeAlive(m_typeIndex, m_typeGeneration))
+      return {};
     const auto &reg = GetRegistry();
+    if (m_methodIndex >= reg.types[m_typeIndex].methods.Size())
+      return {};
     return reg.types[m_typeIndex].methods[m_methodIndex].name;
   }
 
   NGIN::UIntSize Method::GetParameterCount() const
   {
+    if (!IsTypeAlive(m_typeIndex, m_typeGeneration))
+      return 0;
     const auto &reg = GetRegistry();
+    if (m_methodIndex >= reg.types[m_typeIndex].methods.Size())
+      return 0;
     return reg.types[m_typeIndex].methods[m_methodIndex].paramTypeIds.Size();
   }
 
   NGIN::UInt64 Method::GetTypeId() const
   {
+    if (!IsTypeAlive(m_typeIndex, m_typeGeneration))
+      return 0;
     const auto &reg = GetRegistry();
+    if (m_methodIndex >= reg.types[m_typeIndex].methods.Size())
+      return 0;
     return reg.types[m_typeIndex].methods[m_methodIndex].returnTypeId;
   }
 
   std::expected<Any, Error> Method::Invoke(void *obj, const Any *args, NGIN::UIntSize count) const
   {
+    if (!IsTypeAlive(m_typeIndex, m_typeGeneration))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
+    if (m_methodIndex >= reg.types[m_typeIndex].methods.Size())
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     return reg.types[m_typeIndex].methods[m_methodIndex].Invoke(obj, args, count);
   }
 
@@ -415,20 +564,32 @@ namespace NGIN::Reflection
 
   NGIN::UIntSize Method::AttributeCount() const
   {
+    if (!IsTypeAlive(m_typeIndex, m_typeGeneration))
+      return 0;
     const auto &reg = GetRegistry();
+    if (m_methodIndex >= reg.types[m_typeIndex].methods.Size())
+      return 0;
     return reg.types[m_typeIndex].methods[m_methodIndex].attributes.Size();
   }
 
   AttributeView Method::AttributeAt(NGIN::UIntSize i) const
   {
+    if (!IsTypeAlive(m_typeIndex, m_typeGeneration))
+      return AttributeView{};
     const auto &reg = GetRegistry();
+    if (m_methodIndex >= reg.types[m_typeIndex].methods.Size())
+      return AttributeView{};
     const auto &a = reg.types[m_typeIndex].methods[m_methodIndex].attributes[i];
     return AttributeView{a.key, &a.value};
   }
 
   std::expected<AttributeView, Error> Method::Attribute(std::string_view key) const
   {
+    if (!IsTypeAlive(m_typeIndex, m_typeGeneration))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
+    if (m_methodIndex >= reg.types[m_typeIndex].methods.Size())
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &v = reg.types[m_typeIndex].methods[m_methodIndex].attributes;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
       if (v[i].key == key)
@@ -487,12 +648,16 @@ namespace NGIN::Reflection
   // Constructor
   NGIN::UIntSize Constructor::ParameterCount() const
   {
+    if (!IsCtorAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].paramTypeIds.Size();
   }
 
   std::expected<Any, Error> Constructor::Construct(const Any *args, NGIN::UIntSize count) const
   {
+    if (!IsCtorAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &c = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex];
     if (!c.Construct)
@@ -502,12 +667,16 @@ namespace NGIN::Reflection
 
   NGIN::UIntSize Constructor::AttributeCount() const
   {
+    if (!IsCtorAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes.Size();
   }
 
   AttributeView Constructor::AttributeAt(NGIN::UIntSize i) const
   {
+    if (!IsCtorAlive(m_h))
+      return AttributeView{};
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes[i];
     return AttributeView{a.key, &a.value};
@@ -515,6 +684,8 @@ namespace NGIN::Reflection
 
   std::expected<AttributeView, Error> Constructor::Attribute(std::string_view key) const
   {
+    if (!IsCtorAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.typeIndex].constructors[m_h.ctorIndex].attributes;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
@@ -584,7 +755,7 @@ namespace NGIN::Reflection
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = reg.byName.GetPtr(nid))
-        return Type{TypeHandle{*p}};
+        return Type{TypeHandle{*p, reg.types[*p].generation}};
     }
     return std::unexpected(Error{ErrorCode::NotFound, "type not found"});
   }
@@ -596,7 +767,7 @@ namespace NGIN::Reflection
     if (detail::FindNameId(name, nid))
     {
       if (auto *p = reg.byName.GetPtr(nid))
-        return Type{TypeHandle{*p}};
+        return Type{TypeHandle{*p, reg.types[*p].generation}};
     }
     return std::nullopt;
   }
@@ -604,37 +775,47 @@ namespace NGIN::Reflection
   // Type: methods and attributes
   NGIN::UIntSize Type::MethodCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].methods.Size();
   }
 
   Method Type::MethodAt(NGIN::UIntSize i) const
   {
-    return Method{m_h.index, static_cast<NGIN::UInt32>(i)};
+    if (!IsTypeAlive(m_h))
+      return Method{};
+    return Method{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation};
   }
 
   std::expected<Method, Error> Type::GetMethod(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.index].methods;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
       if (v[i].name == name)
-        return Method{m_h.index, static_cast<NGIN::UInt32>(i)};
+        return Method{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation};
     return std::unexpected(Error{ErrorCode::NotFound, "method not found"});
   }
 
   std::optional<Method> Type::FindMethod(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::nullopt;
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.index].methods;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
       if (v[i].name == name)
-        return Method{m_h.index, static_cast<NGIN::UInt32>(i)};
+        return Method{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation};
     return std::nullopt;
   }
 
   MethodOverloads Type::FindMethods(std::string_view name) const
   {
+    if (!IsTypeAlive(m_h))
+      return MethodOverloads{};
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
@@ -643,7 +824,7 @@ namespace NGIN::Reflection
     const auto *vec = tdesc.methodOverloads.GetPtr(nid);
     if (!vec)
       return MethodOverloads{};
-    return MethodOverloads{m_h.index, vec};
+    return MethodOverloads{m_h.index, m_h.generation, vec};
   }
 
   enum class NumKind
@@ -733,6 +914,8 @@ namespace NGIN::Reflection
 
   std::expected<ResolvedMethod, Error> Type::ResolveMethod(std::string_view name, const Any *args, NGIN::UIntSize count) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     NameId nid{};
@@ -842,7 +1025,7 @@ namespace NGIN::Reflection
                                                                       : detail::ConversionKind::Convert);
       }
     }
-    return ResolvedMethod{m_h.index, bestIdx, std::move(argTypeIds), std::move(conversions)};
+    return ResolvedMethod{m_h.index, m_h.generation, bestIdx, std::move(argTypeIds), std::move(conversions)};
   }
 
   std::expected<ResolvedFunction, Error> ResolveFunction(std::string_view name, const Any *args, NGIN::UIntSize count)
@@ -961,17 +1144,23 @@ namespace NGIN::Reflection
   // Constructors
   NGIN::UIntSize Type::ConstructorCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].constructors.Size();
   }
 
   Constructor Type::ConstructorAt(NGIN::UIntSize i) const
   {
-    return Constructor{ConstructorHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+    if (!IsTypeAlive(m_h))
+      return Constructor{};
+    return Constructor{ConstructorHandle{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
   }
 
   std::expected<Any, Error> Type::Construct(const Any *args, NGIN::UIntSize count) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     // Fast-path: default constructor
@@ -1036,12 +1225,16 @@ namespace NGIN::Reflection
 
   NGIN::UIntSize Type::AttributeCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].attributes.Size();
   }
 
   AttributeView Type::AttributeAt(NGIN::UIntSize i) const
   {
+    if (!IsTypeAlive(m_h))
+      return AttributeView{};
     const auto &reg = GetRegistry();
     const auto &a = reg.types[m_h.index].attributes[i];
     return AttributeView{a.key, &a.value};
@@ -1049,6 +1242,8 @@ namespace NGIN::Reflection
 
   std::expected<AttributeView, Error> Type::Attribute(std::string_view key) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &v = reg.types[m_h.index].attributes;
     for (NGIN::UIntSize i = 0; i < v.Size(); ++i)
@@ -1059,6 +1254,8 @@ namespace NGIN::Reflection
 
   NGIN::UIntSize Type::MemberCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     const auto &t = reg.types[m_h.index];
     return t.fields.Size() + t.properties.Size() + t.methods.Size() + t.constructors.Size();
@@ -1066,58 +1263,70 @@ namespace NGIN::Reflection
 
   Member Type::MemberAt(NGIN::UIntSize i) const
   {
+    if (!IsTypeAlive(m_h))
+      return Member{};
     const auto &reg = GetRegistry();
     const auto &t = reg.types[m_h.index];
     const auto fCount = t.fields.Size();
     const auto pCount = t.properties.Size();
     const auto mCount = t.methods.Size();
     if (i < fCount)
-      return Member{MemberHandle{MemberKind::Field, m_h.index, static_cast<NGIN::UInt32>(i)}};
+      return Member{MemberHandle{MemberKind::Field, m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
     i -= fCount;
     if (i < pCount)
-      return Member{MemberHandle{MemberKind::Property, m_h.index, static_cast<NGIN::UInt32>(i)}};
+      return Member{MemberHandle{MemberKind::Property, m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
     i -= pCount;
     if (i < mCount)
-      return Member{MemberHandle{MemberKind::Method, m_h.index, static_cast<NGIN::UInt32>(i)}};
+      return Member{MemberHandle{MemberKind::Method, m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
     i -= mCount;
     if (i < t.constructors.Size())
-      return Member{MemberHandle{MemberKind::Constructor, m_h.index, static_cast<NGIN::UInt32>(i)}};
+      return Member{MemberHandle{MemberKind::Constructor, m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
     return Member{};
   }
 
   NGIN::UIntSize Type::BaseCount() const
   {
+    if (!IsTypeAlive(m_h))
+      return 0;
     const auto &reg = GetRegistry();
     return reg.types[m_h.index].bases.Size();
   }
 
   Base Type::BaseAt(NGIN::UIntSize i) const
   {
-    return Base{BaseHandle{m_h.index, static_cast<NGIN::UInt32>(i)}};
+    if (!IsTypeAlive(m_h))
+      return Base{};
+    return Base{BaseHandle{m_h.index, static_cast<NGIN::UInt32>(i), m_h.generation}};
   }
 
   ExpectedBase Type::GetBase(const Type &base) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::unexpected(Error{ErrorCode::InvalidArgument, kStaleHandle});
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     const auto tid = base.GetTypeId();
     if (auto *p = tdesc.baseIndex.GetPtr(tid))
-      return Base{BaseHandle{m_h.index, *p}};
+      return Base{BaseHandle{m_h.index, *p, m_h.generation}};
     return std::unexpected(Error{ErrorCode::NotFound, "base type not found"});
   }
 
   std::optional<Base> Type::FindBase(const Type &base) const
   {
+    if (!IsTypeAlive(m_h))
+      return std::nullopt;
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     const auto tid = base.GetTypeId();
     if (auto *p = tdesc.baseIndex.GetPtr(tid))
-      return Base{BaseHandle{m_h.index, *p}};
+      return Base{BaseHandle{m_h.index, *p, m_h.generation}};
     return std::nullopt;
   }
 
   bool Type::IsDerivedFrom(const Type &base) const
   {
+    if (!IsTypeAlive(m_h))
+      return false;
     const auto &reg = GetRegistry();
     const auto &tdesc = reg.types[m_h.index];
     const auto tid = base.GetTypeId();
@@ -1126,13 +1335,17 @@ namespace NGIN::Reflection
 
   Type Base::BaseType() const
   {
+    if (!IsBaseAlive(m_h))
+      return Type{};
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
-    return Type{TypeHandle{b.baseTypeIndex}};
+    return Type{TypeHandle{b.baseTypeIndex, reg.types[b.baseTypeIndex].generation}};
   }
 
   void *Base::Upcast(void *obj) const
   {
+    if (!IsBaseAlive(m_h))
+      return nullptr;
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
     if (!b.Upcast)
@@ -1142,6 +1355,8 @@ namespace NGIN::Reflection
 
   const void *Base::Upcast(const void *obj) const
   {
+    if (!IsBaseAlive(m_h))
+      return nullptr;
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
     if (!b.UpcastConst)
@@ -1151,6 +1366,8 @@ namespace NGIN::Reflection
 
   void *Base::Downcast(void *obj) const
   {
+    if (!IsBaseAlive(m_h))
+      return nullptr;
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
     if (!b.Downcast)
@@ -1160,6 +1377,8 @@ namespace NGIN::Reflection
 
   const void *Base::Downcast(const void *obj) const
   {
+    if (!IsBaseAlive(m_h))
+      return nullptr;
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
     if (!b.DowncastConst)
@@ -1169,6 +1388,8 @@ namespace NGIN::Reflection
 
   bool Base::CanDowncast() const
   {
+    if (!IsBaseAlive(m_h))
+      return false;
     const auto &reg = GetRegistry();
     const auto &b = reg.types[m_h.typeIndex].bases[m_h.baseIndex];
     return b.Downcast != nullptr || b.DowncastConst != nullptr;

@@ -14,6 +14,7 @@ namespace NGIN::Reflection
 {
 
   using Any = NGIN::Utilities::Any<>;
+  using ModuleId = NGIN::UInt64;
 
   enum class ErrorCode : unsigned
   {
@@ -60,6 +61,7 @@ namespace NGIN::Reflection
   struct TypeHandle
   {
     NGIN::UInt32 index{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 generation{0};
     constexpr bool IsValid() const noexcept { return index != static_cast<NGIN::UInt32>(-1); }
   };
 
@@ -67,6 +69,7 @@ namespace NGIN::Reflection
   {
     NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 fieldIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 typeGeneration{0};
     constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && fieldIndex != static_cast<NGIN::UInt32>(-1); }
   };
 
@@ -74,6 +77,7 @@ namespace NGIN::Reflection
   {
     NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 propertyIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 typeGeneration{0};
     constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && propertyIndex != static_cast<NGIN::UInt32>(-1); }
   };
 
@@ -81,6 +85,7 @@ namespace NGIN::Reflection
   {
     NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 ctorIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 typeGeneration{0};
     constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && ctorIndex != static_cast<NGIN::UInt32>(-1); }
   };
 
@@ -88,6 +93,7 @@ namespace NGIN::Reflection
   {
     NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 valueIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 typeGeneration{0};
     constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && valueIndex != static_cast<NGIN::UInt32>(-1); }
   };
 
@@ -95,6 +101,7 @@ namespace NGIN::Reflection
   {
     NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 baseIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 typeGeneration{0};
     constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && baseIndex != static_cast<NGIN::UInt32>(-1); }
   };
 
@@ -117,6 +124,7 @@ namespace NGIN::Reflection
     MemberKind kind{MemberKind::Field};
     NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 memberIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 typeGeneration{0};
     constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && memberIndex != static_cast<NGIN::UInt32>(-1); }
   };
 

@@ -169,6 +169,8 @@ namespace NGIN::Reflection
       std::string_view qualifiedName;
       NameId qualifiedNameId{static_cast<NameId>(-1)};
       NGIN::UInt64 typeId;
+      ModuleId moduleId{0};
+      NGIN::UInt32 generation{0};
       NGIN::UIntSize sizeBytes;
       NGIN::UIntSize alignBytes;
       NGIN::Containers::Vector<FieldRuntimeDesc> fields;
@@ -321,7 +323,7 @@ namespace NGIN::Reflection
 
     // Ensure a type is present; returns the type index
     template <class T>
-    NGIN::UInt32 EnsureRegistered()
+    NGIN::UInt32 EnsureRegistered(ModuleId moduleId = ModuleId{0})
     {
       using U = std::remove_cvref_t<T>;
       auto &reg = GetRegistry();
@@ -335,6 +337,7 @@ namespace NGIN::Reflection
       rec.qualifiedNameId = InternNameId(NGIN::Meta::TypeName<U>::qualifiedName);
       rec.qualifiedName = NameFromId(rec.qualifiedNameId); // default name derived; user override optional
       rec.typeId = tid;
+      rec.moduleId = moduleId;
       rec.sizeBytes = sizeof(U);
       rec.alignBytes = alignof(U);
 
@@ -397,7 +400,14 @@ namespace NGIN::Reflection
     constexpr Field() = default;
     explicit constexpr Field(FieldHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_h.IsValid())
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
+             m_h.fieldIndex < reg.types[m_h.typeIndex].fields.Size();
+    }
     [[nodiscard]] std::string_view Name() const;
     [[nodiscard]] NGIN::UInt64 TypeId() const;
 
@@ -427,6 +437,8 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> Get(const Obj &obj) const
     {
       using U = std::remove_cvref_t<T>;
+      if (!IsValid())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &reg = detail::GetRegistry();
       const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
       const auto want = detail::TypeIdOf<U>();
@@ -441,6 +453,8 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<void, Error> Set(Obj &obj, T &&value) const
     {
       using U = std::remove_cvref_t<T>;
+      if (!IsValid())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &reg = detail::GetRegistry();
       const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
       const auto want = detail::TypeIdOf<U>();
@@ -467,7 +481,14 @@ namespace NGIN::Reflection
     constexpr Property() = default;
     explicit constexpr Property(PropertyHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_h.IsValid())
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
+             m_h.propertyIndex < reg.types[m_h.typeIndex].properties.Size();
+    }
     [[nodiscard]] std::string_view Name() const;
     [[nodiscard]] NGIN::UInt64 TypeId() const;
 
@@ -493,6 +514,8 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> Get(const Obj &obj) const
     {
       using U = std::remove_cvref_t<T>;
+      if (!IsValid())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &reg = detail::GetRegistry();
       const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
       const auto want = detail::TypeIdOf<U>();
@@ -527,7 +550,14 @@ namespace NGIN::Reflection
     constexpr EnumValue() = default;
     explicit constexpr EnumValue(EnumValueHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_h.IsValid())
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
+             m_h.valueIndex < reg.types[m_h.typeIndex].enumInfo.values.Size();
+    }
     [[nodiscard]] std::string_view Name() const;
     [[nodiscard]] Any Value() const;
 
@@ -540,9 +570,19 @@ namespace NGIN::Reflection
   {
   public:
     constexpr Method() = default;
-    explicit constexpr Method(NGIN::UInt32 typeIdx, NGIN::UInt32 methodIdx) : m_typeIndex(typeIdx), m_methodIndex(methodIdx) {}
+    explicit constexpr Method(NGIN::UInt32 typeIdx, NGIN::UInt32 methodIdx, NGIN::UInt32 typeGen)
+        : m_typeIndex(typeIdx), m_methodIndex(methodIdx), m_typeGeneration(typeGen)
+    {
+    }
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_typeIndex != static_cast<NGIN::UInt32>(-1); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (m_typeIndex == static_cast<NGIN::UInt32>(-1))
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_typeIndex < reg.types.Size() && reg.types[m_typeIndex].generation == m_typeGeneration &&
+             m_methodIndex < reg.types[m_typeIndex].methods.Size();
+    }
     [[nodiscard]] std::string_view GetName() const;
     [[nodiscard]] NGIN::UIntSize GetParameterCount() const;
     [[nodiscard]] NGIN::UInt64 GetTypeId() const;
@@ -613,6 +653,7 @@ namespace NGIN::Reflection
   private:
     NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 m_methodIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 m_typeGeneration{0};
   };
 
   class Function
@@ -726,22 +767,33 @@ namespace NGIN::Reflection
   public:
     ResolvedMethod() = default;
     ResolvedMethod(NGIN::UInt32 typeIndex,
+                   NGIN::UInt32 typeGeneration,
                    NGIN::UInt32 methodIndex,
                    NGIN::Containers::Vector<NGIN::UInt64> argTypeIds,
                    NGIN::Containers::Vector<detail::ConversionKind> conversions)
         : m_typeIndex(typeIndex),
+          m_typeGeneration(typeGeneration),
           m_methodIndex(methodIndex),
           m_argTypeIds(std::move(argTypeIds)),
           m_conversions(std::move(conversions))
     {
     }
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_typeIndex != static_cast<NGIN::UInt32>(-1); }
-    [[nodiscard]] Method MethodHandle() const { return Method{m_typeIndex, m_methodIndex}; }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (m_typeIndex == static_cast<NGIN::UInt32>(-1))
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_typeIndex < reg.types.Size() && reg.types[m_typeIndex].generation == m_typeGeneration &&
+             m_methodIndex < reg.types[m_typeIndex].methods.Size();
+    }
+    [[nodiscard]] Method MethodHandle() const { return Method{m_typeIndex, m_methodIndex, m_typeGeneration}; }
     [[nodiscard]] NGIN::UIntSize ArgumentCount() const { return m_argTypeIds.Size(); }
 
     [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, std::span<const Any> args) const
     {
+      if (!IsValid())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       if (args.size() != m_argTypeIds.Size())
         return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
       for (NGIN::UIntSize i = 0; i < m_argTypeIds.Size(); ++i)
@@ -810,6 +862,7 @@ namespace NGIN::Reflection
 
   private:
     NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 m_typeGeneration{0};
     NGIN::UInt32 m_methodIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::Containers::Vector<NGIN::UInt64> m_argTypeIds;
     NGIN::Containers::Vector<detail::ConversionKind> m_conversions;
@@ -821,7 +874,14 @@ namespace NGIN::Reflection
     constexpr Constructor() = default;
     explicit constexpr Constructor(ConstructorHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_h.IsValid())
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
+             m_h.ctorIndex < reg.types[m_h.typeIndex].constructors.Size();
+    }
     [[nodiscard]] NGIN::UIntSize ParameterCount() const;
     [[nodiscard]] std::expected<Any, Error> Construct(const Any *args, NGIN::UIntSize count) const;
     [[nodiscard]] std::expected<Any, Error> Construct(std::span<const Any> args) const
@@ -855,17 +915,31 @@ namespace NGIN::Reflection
   {
   public:
     MethodOverloads() = default;
-    MethodOverloads(NGIN::UInt32 typeIndex, const NGIN::Containers::Vector<NGIN::UInt32> *indices)
-        : m_typeIndex(typeIndex), m_indices(indices)
+    MethodOverloads(NGIN::UInt32 typeIndex,
+                    NGIN::UInt32 typeGeneration,
+                    const NGIN::Containers::Vector<NGIN::UInt32> *indices)
+        : m_typeIndex(typeIndex), m_typeGeneration(typeGeneration), m_indices(indices)
     {
     }
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_indices != nullptr; }
-    [[nodiscard]] NGIN::UIntSize Size() const { return m_indices ? m_indices->Size() : 0; }
-    [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const { return Method{m_typeIndex, (*m_indices)[i]}; }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_indices || m_typeIndex == static_cast<NGIN::UInt32>(-1))
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_typeIndex < reg.types.Size() && reg.types[m_typeIndex].generation == m_typeGeneration;
+    }
+    [[nodiscard]] NGIN::UIntSize Size() const { return IsValid() ? m_indices->Size() : 0; }
+    [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const
+    {
+      if (!IsValid())
+        return Method{};
+      return Method{m_typeIndex, (*m_indices)[i], m_typeGeneration};
+    }
 
   private:
     NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
+    NGIN::UInt32 m_typeGeneration{0};
     const NGIN::Containers::Vector<NGIN::UInt32> *m_indices{nullptr};
   };
 
@@ -889,7 +963,13 @@ namespace NGIN::Reflection
     constexpr Type() = default;
     explicit constexpr Type(TypeHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_h.IsValid())
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_h.index < reg.types.Size() && reg.types[m_h.index].generation == m_h.generation;
+    }
     [[nodiscard]] std::string_view QualifiedName() const;
     [[nodiscard]] NGIN::UInt64 GetTypeId() const;
     [[nodiscard]] NGIN::UIntSize Size() const;
@@ -930,6 +1010,8 @@ namespace NGIN::Reflection
     requires (!detail::FunctionSignature<R>)
     [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name) const
     {
+      if (!IsValid())
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &reg = detail::GetRegistry();
       const auto &tdesc = reg.types[m_h.index];
       NameId nid{};
@@ -974,7 +1056,7 @@ namespace NGIN::Reflection
           }
         }
         if (all)
-          return Method{m_h.index, mi};
+          return Method{m_h.index, mi, m_h.generation};
       }
       return std::unexpected(Error{ErrorCode::InvalidArgument, "no exact match"});
     }
@@ -1086,7 +1168,24 @@ namespace NGIN::Reflection
     constexpr Member() = default;
     explicit constexpr Member(MemberHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_h.IsValid())
+        return false;
+      const auto &reg = detail::GetRegistry();
+      if (m_h.typeIndex >= reg.types.Size() || reg.types[m_h.typeIndex].generation != m_h.typeGeneration)
+        return false;
+      const auto &t = reg.types[m_h.typeIndex];
+      switch (m_h.kind)
+      {
+        case MemberKind::Field: return m_h.memberIndex < t.fields.Size();
+        case MemberKind::Property: return m_h.memberIndex < t.properties.Size();
+        case MemberKind::Method: return m_h.memberIndex < t.methods.Size();
+        case MemberKind::Constructor: return m_h.memberIndex < t.constructors.Size();
+        default: break;
+      }
+      return false;
+    }
     [[nodiscard]] MemberKind Kind() const noexcept { return m_h.kind; }
 
     [[nodiscard]] bool IsField() const noexcept { return m_h.kind == MemberKind::Field; }
@@ -1094,10 +1193,10 @@ namespace NGIN::Reflection
     [[nodiscard]] bool IsMethod() const noexcept { return m_h.kind == MemberKind::Method; }
     [[nodiscard]] bool IsConstructor() const noexcept { return m_h.kind == MemberKind::Constructor; }
 
-    [[nodiscard]] Field AsField() const { return Field{FieldHandle{m_h.typeIndex, m_h.memberIndex}}; }
-    [[nodiscard]] Property AsProperty() const { return Property{PropertyHandle{m_h.typeIndex, m_h.memberIndex}}; }
-    [[nodiscard]] Method AsMethod() const { return Method{m_h.typeIndex, m_h.memberIndex}; }
-    [[nodiscard]] Constructor AsConstructor() const { return Constructor{ConstructorHandle{m_h.typeIndex, m_h.memberIndex}}; }
+    [[nodiscard]] Field AsField() const { return Field{FieldHandle{m_h.typeIndex, m_h.memberIndex, m_h.typeGeneration}}; }
+    [[nodiscard]] Property AsProperty() const { return Property{PropertyHandle{m_h.typeIndex, m_h.memberIndex, m_h.typeGeneration}}; }
+    [[nodiscard]] Method AsMethod() const { return Method{m_h.typeIndex, m_h.memberIndex, m_h.typeGeneration}; }
+    [[nodiscard]] Constructor AsConstructor() const { return Constructor{ConstructorHandle{m_h.typeIndex, m_h.memberIndex, m_h.typeGeneration}}; }
 
   private:
     MemberHandle m_h{};
@@ -1109,7 +1208,14 @@ namespace NGIN::Reflection
     constexpr Base() = default;
     explicit constexpr Base(BaseHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      if (!m_h.IsValid())
+        return false;
+      const auto &reg = detail::GetRegistry();
+      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
+             m_h.baseIndex < reg.types[m_h.typeIndex].bases.Size();
+    }
     [[nodiscard]] Type BaseType() const;
     [[nodiscard]] void *Upcast(void *obj) const;
     [[nodiscard]] const void *Upcast(const void *obj) const;
@@ -1217,7 +1323,8 @@ namespace NGIN::Reflection
   Type GetType()
   {
     auto idx = detail::EnsureRegistered<T>();
-    return Type{TypeHandle{idx}};
+    const auto &reg = detail::GetRegistry();
+    return Type{TypeHandle{idx, reg.types[idx].generation}};
   }
 
   template <class T>
@@ -1227,7 +1334,7 @@ namespace NGIN::Reflection
     auto &reg = detail::GetRegistry();
     const auto tid = detail::TypeIdOf<U>();
     if (auto *p = reg.byTypeId.GetPtr(tid))
-      return Type{TypeHandle{*p}};
+      return Type{TypeHandle{*p, reg.types[*p].generation}};
     return std::nullopt;
   }
 
