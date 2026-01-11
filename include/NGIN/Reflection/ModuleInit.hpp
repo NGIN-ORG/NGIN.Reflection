@@ -72,35 +72,42 @@ namespace NGIN::Reflection
   template <class Fn>
   bool EnsureModuleInitialized(std::string_view moduleName, Fn &&fn)
   {
-    static bool initialized = false;
-    if (initialized)
-      return true;
-
     ModuleRegistration registration{moduleName};
+    const auto moduleId = registration.GetModuleId();
+    if (!detail::BeginModuleInitialization(moduleId))
+      return true;
 
     using Result = std::invoke_result_t<Fn, ModuleRegistration &>;
-
-    if constexpr (std::is_void_v<Result>)
+    auto finish = [&](bool success) {
+      detail::FinishModuleInitialization(moduleId, success);
+      return success;
+    };
+    try
     {
-      std::forward<Fn>(fn)(registration);
-      initialized = true;
-      return true;
-    }
-    else
-    {
-      Result result = std::forward<Fn>(fn)(registration);
-      if constexpr (std::is_convertible_v<Result, bool>)
+      if constexpr (std::is_void_v<Result>)
       {
-        if (!static_cast<bool>(result))
-          return false;
-        initialized = true;
-        return true;
+        std::forward<Fn>(fn)(registration);
+        return finish(true);
       }
       else
       {
-        initialized = true;
-        return true;
+        Result result = std::forward<Fn>(fn)(registration);
+        if constexpr (std::is_convertible_v<Result, bool>)
+        {
+          if (!static_cast<bool>(result))
+            return finish(false);
+          return finish(true);
+        }
+        else
+        {
+          return finish(true);
+        }
       }
+    }
+    catch (...)
+    {
+      detail::FinishModuleInitialization(moduleId, false);
+      throw;
     }
   }
 

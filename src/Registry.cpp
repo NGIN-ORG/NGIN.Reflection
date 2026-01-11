@@ -4,6 +4,9 @@
 #include <optional>
 #include <new>
 #include <exception>
+#include <condition_variable>
+#include <mutex>
+#include <unordered_map>
 
 namespace NGIN::Reflection::detail
 {
@@ -162,6 +165,44 @@ namespace NGIN::Reflection::detail
   RegistryWriteLock LockRegistryWrite() noexcept
   {
     return RegistryWriteLock{};
+  }
+
+  namespace
+  {
+    enum class ModuleInitState : unsigned char
+    {
+      Uninitialized,
+      Initializing,
+      Initialized
+    };
+
+    std::mutex s_moduleInitMutex;
+    std::condition_variable s_moduleInitCv;
+    std::unordered_map<ModuleId, ModuleInitState> s_moduleInitState;
+  }
+
+  bool BeginModuleInitialization(ModuleId moduleId) noexcept
+  {
+    std::unique_lock lock{s_moduleInitMutex};
+    auto &state = s_moduleInitState[moduleId];
+    while (state == ModuleInitState::Initializing)
+    {
+      s_moduleInitCv.wait(lock);
+    }
+    if (state == ModuleInitState::Initialized)
+      return false;
+    state = ModuleInitState::Initializing;
+    return true;
+  }
+
+  void FinishModuleInitialization(ModuleId moduleId, bool success) noexcept
+  {
+    {
+      std::lock_guard lock{s_moduleInitMutex};
+      auto &state = s_moduleInitState[moduleId];
+      state = success ? ModuleInitState::Initialized : ModuleInitState::Uninitialized;
+    }
+    s_moduleInitCv.notify_all();
   }
 
   std::string_view StringPool::Intern(std::string_view s) noexcept
@@ -334,7 +375,7 @@ namespace NGIN::Reflection::detail
   {
     if (!h.IsValid())
       return false;
-    return h.index < reg.functions.Size();
+    return h.index < reg.functions.Size() && reg.functions[h.index].alive;
   }
 
   void IncrementModuleTypeCount(ModuleId moduleId) noexcept
@@ -1007,13 +1048,29 @@ namespace NGIN::Reflection
   {
     [[maybe_unused]] auto lock = detail::LockRegistryRead();
     const auto &reg = GetRegistry();
-    return reg.functions.Size();
+    NGIN::UIntSize count = 0;
+    for (NGIN::UIntSize i = 0; i < reg.functions.Size(); ++i)
+    {
+      if (reg.functions[i].alive)
+        ++count;
+    }
+    return count;
   }
 
   Function FunctionAt(NGIN::UIntSize i)
   {
     [[maybe_unused]] auto lock = detail::LockRegistryRead();
-    return Function{FunctionHandle{static_cast<NGIN::UInt32>(i)}};
+    const auto &reg = GetRegistry();
+    NGIN::UIntSize seen = 0;
+    for (NGIN::UIntSize idx = 0; idx < reg.functions.Size(); ++idx)
+    {
+      if (!reg.functions[idx].alive)
+        continue;
+      if (seen == i)
+        return Function{FunctionHandle{static_cast<NGIN::UInt32>(idx)}};
+      ++seen;
+    }
+    return Function{};
   }
 
   ExpectedFunction GetFunction(std::string_view name)
@@ -1024,8 +1081,12 @@ namespace NGIN::Reflection
     (void)detail::FindNameId(name, nid);
     if (auto *vec = reg.functionOverloads.GetPtr(nid))
     {
-      if (vec->Size() > 0)
-        return Function{FunctionHandle{(*vec)[0]}};
+      for (NGIN::UIntSize i = 0; i < vec->Size(); ++i)
+      {
+        auto handle = FunctionHandle{(*vec)[i]};
+        if (detail::IsFunctionAlive(reg, handle))
+          return Function{handle};
+      }
     }
     return std::unexpected(Error{ErrorCode::NotFound, "function not found"});
   }
@@ -1038,8 +1099,12 @@ namespace NGIN::Reflection
     (void)detail::FindNameId(name, nid);
     if (auto *vec = reg.functionOverloads.GetPtr(nid))
     {
-      if (vec->Size() > 0)
-        return Function{FunctionHandle{(*vec)[0]}};
+      for (NGIN::UIntSize i = 0; i < vec->Size(); ++i)
+      {
+        auto handle = FunctionHandle{(*vec)[i]};
+        if (detail::IsFunctionAlive(reg, handle))
+          return Function{handle};
+      }
     }
     return std::nullopt;
   }
@@ -1051,10 +1116,15 @@ namespace NGIN::Reflection
     NameId nid{};
     (void)detail::FindNameId(name, nid);
     const auto *vec = reg.functionOverloads.GetPtr(nid);
-    if (!vec || vec->Size() == 0)
+    if (!vec)
       return FunctionOverloads{};
-    const auto stableName = reg.functions[(*vec)[0]].nameId;
-    return FunctionOverloads{stableName};
+    for (NGIN::UIntSize i = 0; i < vec->Size(); ++i)
+    {
+      auto handle = FunctionHandle{(*vec)[i]};
+      if (detail::IsFunctionAlive(reg, handle))
+        return FunctionOverloads{reg.functions[handle.index].nameId};
+    }
+    return FunctionOverloads{};
   }
 
   ExpectedType GetType(std::string_view name)
@@ -1109,6 +1179,38 @@ namespace NGIN::Reflection
 #endif
     };
 
+    for (NGIN::UInt32 i = 0; i < reg.functions.Size(); ++i)
+    {
+      auto &f = reg.functions[i];
+      if (!f.alive || f.moduleId != moduleId)
+        continue;
+      removed = true;
+      if (!f.nameId.empty())
+      {
+        if (auto *vec = reg.functionOverloads.GetPtr(f.nameId))
+        {
+          for (NGIN::UIntSize k = 0; k < vec->Size();)
+          {
+            if ((*vec)[k] == i)
+              vec->Erase(k);
+            else
+              ++k;
+          }
+          if (vec->Size() == 0)
+            reg.functionOverloads.Remove(f.nameId);
+        }
+      }
+      f.name = {};
+      f.nameId = {};
+      f.returnTypeId = 0;
+      f.paramTypeIds.Clear();
+      f.attributes.Clear();
+      f.Invoke = nullptr;
+      f.InvokeExact = nullptr;
+      f.moduleId = 0;
+      f.alive = false;
+    }
+
     for (NGIN::UInt32 i = 0; i < reg.types.Size(); ++i)
     {
       auto &t = reg.types[i];
@@ -1135,6 +1237,8 @@ namespace NGIN::Reflection
       detail::DecrementModuleTypeCount(moduleId);
     }
 
+    if (removed)
+      detail::FinishModuleInitialization(moduleId, false);
     return removed;
   }
 
@@ -1422,9 +1526,13 @@ namespace NGIN::Reflection
     Key best{INT_MAX, INT_MAX, INT_MAX, 0};
     NGIN::Containers::Vector<OverloadDiagnostic> diags;
     diags.Reserve(vec->Size());
+    bool anyAlive = false;
     for (NGIN::UIntSize k = 0; k < vec->Size(); ++k)
     {
       auto fi = (*vec)[k];
+      if (!detail::IsFunctionAlive(reg, FunctionHandle{fi}))
+        continue;
+      anyAlive = true;
       const auto &f = reg.functions[fi];
       OverloadDiagnostic diag{};
       diag.methodIndex = fi;
@@ -1489,6 +1597,8 @@ namespace NGIN::Reflection
       }
       diags.PushBack(std::move(diag));
     }
+    if (!anyAlive)
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
     if (bestIdx == static_cast<NGIN::UInt32>(-1))
     {
       Error err{ErrorCode::InvalidArgument, "no viable overload", std::move(diags)};

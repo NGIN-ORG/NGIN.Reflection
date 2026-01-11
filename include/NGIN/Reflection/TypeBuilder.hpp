@@ -32,11 +32,53 @@ namespace NGIN::Reflection
     TypeBuilder &SetName(std::string_view qualified)
     {
       auto &reg = detail::GetRegistry();
-      auto id = detail::InternNameId(reg.types[m_index].moduleId, qualified);
-      reg.types[m_index].qualifiedNameId = id;
-      reg.types[m_index].qualifiedName = detail::NameFromId(id);
+      auto &typeDesc = reg.types[m_index];
+      const auto oldNameId = typeDesc.qualifiedNameId;
+      const auto oldName = typeDesc.qualifiedName;
+      if (!oldNameId.empty())
+      {
+        if (auto *p = reg.byName.GetPtr(oldNameId); p && *p == m_index)
+          reg.byName.Remove(oldNameId);
+      }
+#if defined(_MSC_VER)
+      if (!oldName.empty())
+      {
+        auto remove_alias = [&](std::string_view prefix) {
+          if (oldName.size() > prefix.size() && oldName.substr(0, prefix.size()) == prefix)
+          {
+            auto trimmed = oldName.substr(prefix.size());
+            if (auto *p = reg.byName.GetPtr(trimmed); p && *p == m_index)
+              reg.byName.Remove(trimmed);
+          }
+        };
+        remove_alias("class ");
+        remove_alias("struct ");
+        remove_alias("enum ");
+        remove_alias("union ");
+      }
+#endif
+      auto id = detail::InternNameId(typeDesc.moduleId, qualified);
+      typeDesc.qualifiedNameId = id;
+      typeDesc.qualifiedName = detail::NameFromId(id);
       // Update name index as well
       reg.byName.Insert(id, m_index);
+#if defined(_MSC_VER)
+      {
+        auto qn = typeDesc.qualifiedName;
+        auto add_alias = [&](std::string_view prefix) {
+          if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
+          {
+            auto trimmed = qn.substr(prefix.size());
+            auto aliasId = detail::InternNameId(typeDesc.moduleId, trimmed);
+            reg.byName.Insert(aliasId, m_index);
+          }
+        };
+        add_alias("class ");
+        add_alias("struct ");
+        add_alias("enum ");
+        add_alias("union ");
+      }
+#endif
       return *this;
     }
 
@@ -49,9 +91,12 @@ namespace NGIN::Reflection
       detail::FieldRuntimeDesc f{};
       {
         auto svName = name.empty() ? detail::MemberNameFromPretty<MemberPtr>() : name;
-        auto id = detail::InternNameId(reg.types[m_index].moduleId, svName);
-        f.nameId = id;
-        f.name = detail::NameFromId(id);
+        if (!svName.empty())
+        {
+          auto id = detail::InternNameId(reg.types[m_index].moduleId, svName);
+          f.nameId = id;
+          f.name = detail::NameFromId(id);
+        }
       }
       {
         auto sv = NGIN::Meta::TypeName<MemberT>::qualifiedName;
@@ -65,7 +110,8 @@ namespace NGIN::Reflection
       reg.types[m_index].fields.PushBack(std::move(f));
       // update Field index map
       const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].fields.Size() - 1);
-      reg.types[m_index].fieldIndex.Insert(reg.types[m_index].fields[newIdx].nameId, newIdx);
+      if (!reg.types[m_index].fields[newIdx].nameId.empty())
+        reg.types[m_index].fieldIndex.Insert(reg.types[m_index].fields[newIdx].nameId, newIdx);
       return *this;
     }
 
@@ -619,13 +665,13 @@ namespace NGIN::Reflection
     };
 
     template <auto Fn>
-    inline Function RegisterFunctionUnlocked(std::string_view name)
+    inline Function RegisterFunctionUnlocked(std::string_view name, ModuleId moduleId)
     {
       static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "RegisterFunction requires function pointer");
       using Traits = detail::FunctionTraits<decltype(Fn)>;
       auto &reg = detail::GetRegistry();
       detail::FunctionRuntimeDesc f{};
-      auto nameId = detail::InternNameId(ModuleId{0}, name);
+      auto nameId = detail::InternNameId(moduleId, name);
       f.name = detail::NameFromId(nameId);
       f.nameId = nameId;
       if constexpr (std::is_void_v<typename Traits::Ret>)
@@ -644,6 +690,8 @@ namespace NGIN::Reflection
       }
       f.Invoke = &Traits::template Invoke<Fn>;
       f.InvokeExact = &Traits::template InvokeExact<Fn>;
+      f.moduleId = moduleId;
+      f.alive = true;
       reg.functions.PushBack(std::move(f));
       const auto newIndex = static_cast<NGIN::UInt32>(reg.functions.Size() - 1);
       auto *vecPtr = reg.functionOverloads.GetPtr(reg.functions[newIndex].nameId);
@@ -689,6 +737,7 @@ namespace NGIN::Reflection
       using Tuple = typename Traits::Args;
       detail::PushParamIds<Tuple>(m, std::make_index_sequence<N>{});
     }
+    m.isConst = Traits::IsConst;
     // Invoker
     m.Invoke = &Traits::template Invoke<MemFn>;
     m.InvokeExact = &Traits::template InvokeExact<MemFn>;
@@ -715,7 +764,8 @@ namespace NGIN::Reflection
   inline TypeBuilder<T> &TypeBuilder<T>::StaticMethod(std::string_view name)
   {
     static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "StaticMethod requires function pointer");
-    (void)detail::RegisterFunctionUnlocked<Fn>(name);
+    auto &reg = detail::GetRegistry();
+    (void)detail::RegisterFunctionUnlocked<Fn>(name, reg.types[m_index].moduleId);
     return *this;
   }
 
@@ -925,7 +975,7 @@ namespace NGIN::Reflection
   {
     static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "RegisterFunction requires function pointer");
     [[maybe_unused]] auto lock = detail::LockRegistryWrite();
-    return detail::RegisterFunctionUnlocked<Fn>(name);
+    return detail::RegisterFunctionUnlocked<Fn>(name, ModuleId{0});
   }
 
 } // namespace NGIN::Reflection

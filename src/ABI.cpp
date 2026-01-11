@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <string>
 #include <cstring>
+#include <mutex>
 
 using namespace NGIN::Reflection;
 using namespace NGIN::Reflection::detail;
@@ -14,6 +15,8 @@ extern "C" NGIN_REFLECTION_API bool NGINReflectionExportV1(NGINReflectionRegistr
 {
   if (!out)
     return false;
+  static std::mutex s_exportMutex;
+  std::lock_guard<std::mutex> exportLock{s_exportMutex};
 
   [[maybe_unused]] auto lock = detail::LockRegistryRead();
   const auto &reg = GetRegistry();

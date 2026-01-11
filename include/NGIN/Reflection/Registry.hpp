@@ -132,6 +132,7 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
       std::expected<Any, Error> (*Invoke)(void *, const Any *, NGIN::UIntSize){nullptr};
       std::expected<Any, Error> (*InvokeExact)(void *, const Any *, NGIN::UIntSize){nullptr};
+      bool isConst{false};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -143,6 +144,8 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
       std::expected<Any, Error> (*Invoke)(const Any *, NGIN::UIntSize){nullptr};
       std::expected<Any, Error> (*InvokeExact)(const Any *, NGIN::UIntSize){nullptr};
+      ModuleId moduleId{0};
+      bool alive{true};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
@@ -245,6 +248,8 @@ namespace NGIN::Reflection
 
     RegistryReadLock LockRegistryRead() noexcept;
     RegistryWriteLock LockRegistryWrite() noexcept;
+    bool BeginModuleInitialization(ModuleId moduleId) noexcept;
+    void FinishModuleInitialization(ModuleId moduleId, bool success) noexcept;
 
     bool IsTypeAlive(const Registry &reg, NGIN::UInt32 index, NGIN::UInt32 generation) noexcept;
     bool IsTypeAlive(const Registry &reg, TypeHandle h) noexcept;
@@ -667,6 +672,13 @@ namespace NGIN::Reflection
     requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<Any, Error> Invoke(const Obj &obj, std::span<const Any> args) const
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsMethodAlive(reg, m_typeIndex, m_typeGeneration, m_methodIndex))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      const auto &m = reg.types[m_typeIndex].methods[m_methodIndex];
+      if (!m.isConst)
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "const object requires const method"});
       return Invoke(const_cast<void *>(static_cast<const void *>(std::addressof(obj))), args);
     }
     template <NGIN::UIntSize N>
@@ -707,7 +719,15 @@ namespace NGIN::Reflection
     requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<R, Error> InvokeAs(const Obj &obj, A &&...a) const
     {
-      return InvokeAs<R>(const_cast<void *>(static_cast<const void *>(std::addressof(obj))), std::forward<A>(a)...);
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsMethodAlive(reg, m_typeIndex, m_typeGeneration, m_methodIndex))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      const auto &m = reg.types[m_typeIndex].methods[m_methodIndex];
+      if (!m.isConst)
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "const object requires const method"});
+      return InvokeAs<R>(const_cast<void *>(static_cast<const void *>(std::addressof(obj))),
+                         std::forward<A>(a)...);
     }
 
     // Attributes
@@ -727,7 +747,12 @@ namespace NGIN::Reflection
     constexpr Function() = default;
     explicit constexpr Function(FunctionHandle h) : m_h(h) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_h.IsValid(); }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      return detail::IsFunctionAlive(reg, m_h);
+    }
     [[nodiscard]] std::string_view GetName() const;
     [[nodiscard]] NGIN::UIntSize GetParameterCount() const;
     [[nodiscard]] NGIN::UInt64 GetTypeId() const;
@@ -901,6 +926,13 @@ namespace NGIN::Reflection
     requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<Any, Error> Invoke(const Obj &obj, std::span<const Any> args) const
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsMethodAlive(reg, m_typeIndex, m_typeGeneration, m_methodIndex))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      const auto &m = reg.types[m_typeIndex].methods[m_methodIndex];
+      if (!m.isConst)
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "const object requires const method"});
       return Invoke(const_cast<void *>(static_cast<const void *>(std::addressof(obj))), args);
     }
 
@@ -926,7 +958,15 @@ namespace NGIN::Reflection
     requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<R, Error> InvokeAs(const Obj &obj, A &&...a) const
     {
-      return InvokeAs<R>(const_cast<void *>(static_cast<const void *>(std::addressof(obj))), std::forward<A>(a)...);
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsMethodAlive(reg, m_typeIndex, m_typeGeneration, m_methodIndex))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      const auto &m = reg.types[m_typeIndex].methods[m_methodIndex];
+      if (!m.isConst)
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "const object requires const method"});
+      return InvokeAs<R>(const_cast<void *>(static_cast<const void *>(std::addressof(obj))),
+                         std::forward<A>(a)...);
     }
 
   private:
@@ -973,7 +1013,11 @@ namespace NGIN::Reflection
     AttributeView() = default;
     AttributeView(std::string_view k, const AttrValue *v) : m_key(k), m_val(v) {}
     [[nodiscard]] std::string_view Key() const { return m_key; }
-    [[nodiscard]] const AttrValue &Value() const { return *m_val; }
+    [[nodiscard]] const AttrValue &Value() const
+    {
+      static const AttrValue kEmpty{};
+      return m_val ? *m_val : kEmpty;
+    }
 
   private:
     std::string_view m_key{};
@@ -1038,23 +1082,49 @@ namespace NGIN::Reflection
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
       const auto &reg = detail::GetRegistry();
-      return reg.functionOverloads.GetPtr(m_nameId) != nullptr;
+      auto *vec = reg.functionOverloads.GetPtr(m_nameId);
+      if (!vec)
+        return false;
+      for (NGIN::UIntSize i = 0; i < vec->Size(); ++i)
+      {
+        if (detail::IsFunctionAlive(reg, FunctionHandle{(*vec)[i]}))
+          return true;
+      }
+      return false;
     }
     [[nodiscard]] NGIN::UIntSize Size() const
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
       const auto &reg = detail::GetRegistry();
       const auto *vec = reg.functionOverloads.GetPtr(m_nameId);
-      return vec ? vec->Size() : 0;
+      if (!vec)
+        return 0;
+      NGIN::UIntSize count = 0;
+      for (NGIN::UIntSize i = 0; i < vec->Size(); ++i)
+      {
+        if (detail::IsFunctionAlive(reg, FunctionHandle{(*vec)[i]}))
+          ++count;
+      }
+      return count;
     }
     [[nodiscard]] Function FunctionAt(NGIN::UIntSize i) const
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
       const auto &reg = detail::GetRegistry();
       const auto *vec = reg.functionOverloads.GetPtr(m_nameId);
-      if (!vec || i >= vec->Size())
+      if (!vec)
         return Function{};
-      return Function{FunctionHandle{(*vec)[i]}};
+      NGIN::UIntSize seen = 0;
+      for (NGIN::UIntSize idx = 0; idx < vec->Size(); ++idx)
+      {
+        auto handle = FunctionHandle{(*vec)[idx]};
+        if (!detail::IsFunctionAlive(reg, handle))
+          continue;
+        if (seen == i)
+          return Function{handle};
+        ++seen;
+      }
+      return Function{};
     }
 
   private:
@@ -1192,9 +1262,11 @@ namespace NGIN::Reflection
       using ObjT = std::remove_reference_t<Obj>;
       if constexpr (std::is_const_v<ObjT>)
       {
-        return Invoke<R>(name,
-                         const_cast<void *>(static_cast<const void *>(std::addressof(obj))),
-                         std::forward<A>(a)...);
+        auto m = ResolveMethod<R, A...>(name);
+        if (!m.has_value())
+          return std::unexpected(m.error());
+        std::array<Any, sizeof...(A)> tmp{Any{std::forward<A>(a)}...};
+        return m->Invoke(obj, std::span<const Any>{tmp.data(), tmp.size()});
       }
       else
       {
@@ -1217,9 +1289,10 @@ namespace NGIN::Reflection
       using ObjT = std::remove_reference_t<Obj>;
       if constexpr (std::is_const_v<ObjT>)
       {
-        return InvokeAs<R>(name,
-                           const_cast<void *>(static_cast<const void *>(std::addressof(obj))),
-                           std::forward<A>(a)...);
+        auto m = ResolveMethod<R, A...>(name);
+        if (!m)
+          return std::unexpected(m.error());
+        return m->template InvokeAs<R>(obj, std::forward<A>(a)...);
       }
       else
       {
@@ -1377,9 +1450,13 @@ namespace NGIN::Reflection
       else
         return detail::TypeIdOf<std::remove_cv_t<std::remove_reference_t<R>>>();
     }();
+    bool anyAlive = false;
     for (NGIN::UIntSize k = 0; k < vec->Size(); ++k)
     {
       auto fi = (*vec)[k];
+      if (!detail::IsFunctionAlive(reg, FunctionHandle{fi}))
+        continue;
+      anyAlive = true;
       const auto &f = reg.functions[fi];
       if constexpr (!std::is_void_v<R>)
       {
@@ -1405,6 +1482,8 @@ namespace NGIN::Reflection
       if (all)
         return Function{FunctionHandle{fi}};
     }
+    if (!anyAlive)
+      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
     return std::unexpected(Error{ErrorCode::InvalidArgument, "no exact match"});
   }
 
