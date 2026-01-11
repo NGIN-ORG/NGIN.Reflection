@@ -434,7 +434,7 @@ namespace NGIN::Reflection
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
         auto *c = static_cast<C *>(obj);
-        return call<MemFn>(c, args, std::index_sequence_for<A...>{});
+        return Call<MemFn>(c, args, std::index_sequence_for<A...>{});
       }
 
       template <auto MemFn>
@@ -443,12 +443,12 @@ namespace NGIN::Reflection
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
         auto *c = static_cast<C *>(obj);
-        return call_exact<MemFn>(c, args, std::index_sequence_for<A...>{});
+        return CallExact<MemFn>(c, args, std::index_sequence_for<A...>{});
       }
 
     private:
       template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> call(C *c, const Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> Call(C *c, const Any *args, std::index_sequence<I...>)
       {
         if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
         {
@@ -467,7 +467,7 @@ namespace NGIN::Reflection
       }
 
       template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> call_exact(C *c, const Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> CallExact(C *c, const Any *args, std::index_sequence<I...>)
       {
         if ((ArgMatchesExact<A>(args[I]) && ...))
         {
@@ -500,7 +500,7 @@ namespace NGIN::Reflection
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
         auto *c = static_cast<const C *>(obj);
-        return call<MemFn>(c, args, std::index_sequence_for<A...>{});
+        return Call<MemFn>(c, args, std::index_sequence_for<A...>{});
       }
 
       template <auto MemFn>
@@ -509,12 +509,12 @@ namespace NGIN::Reflection
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
         auto *c = static_cast<const C *>(obj);
-        return call_exact<MemFn>(c, args, std::index_sequence_for<A...>{});
+        return CallExact<MemFn>(c, args, std::index_sequence_for<A...>{});
       }
 
     private:
       template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> call(const C *c, const Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> Call(const C *c, const Any *args, std::index_sequence<I...>)
       {
         if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
         {
@@ -533,7 +533,7 @@ namespace NGIN::Reflection
       }
 
       template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> call_exact(const C *c, const Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> CallExact(const C *c, const Any *args, std::index_sequence<I...>)
       {
         if ((ArgMatchesExact<A>(args[I]) && ...))
         {
@@ -567,7 +567,7 @@ namespace NGIN::Reflection
       {
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        return call<Fn>(args, std::index_sequence_for<A...>{});
+        return Call<Fn>(args, std::index_sequence_for<A...>{});
       }
 
       template <auto Fn>
@@ -575,12 +575,12 @@ namespace NGIN::Reflection
       {
         if (count != Arity)
           return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        return call_exact<Fn>(args, std::index_sequence_for<A...>{});
+        return CallExact<Fn>(args, std::index_sequence_for<A...>{});
       }
 
     private:
       template <auto Fn, std::size_t... I>
-      static std::expected<Any, Error> call(const Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> Call(const Any *args, std::index_sequence<I...>)
       {
         if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
         {
@@ -599,7 +599,7 @@ namespace NGIN::Reflection
       }
 
       template <auto Fn, std::size_t... I>
-      static std::expected<Any, Error> call_exact(const Any *args, std::index_sequence<I...>)
+      static std::expected<Any, Error> CallExact(const Any *args, std::index_sequence<I...>)
       {
         if ((ArgMatchesExact<A>(args[I]) && ...))
         {
@@ -929,4 +929,3 @@ namespace NGIN::Reflection
   }
 
 } // namespace NGIN::Reflection
-
