@@ -32,7 +32,7 @@ namespace NGIN::Reflection
     TypeBuilder &SetName(std::string_view qualified)
     {
       auto &reg = detail::GetRegistry();
-      auto id = detail::InternNameId(qualified);
+      auto id = detail::InternNameId(reg.types[m_index].moduleId, qualified);
       reg.types[m_index].qualifiedNameId = id;
       reg.types[m_index].qualifiedName = detail::NameFromId(id);
       // Update name index as well
@@ -49,7 +49,7 @@ namespace NGIN::Reflection
       detail::FieldRuntimeDesc f{};
       {
         auto svName = name.empty() ? detail::MemberNameFromPretty<MemberPtr>() : name;
-        auto id = detail::InternNameId(svName);
+        auto id = detail::InternNameId(reg.types[m_index].moduleId, svName);
         f.nameId = id;
         f.name = detail::NameFromId(id);
       }
@@ -103,7 +103,9 @@ namespace NGIN::Reflection
     TypeBuilder &Attribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
-      reg.types[m_index].attributes.PushBack(AttributeDesc{key, value});
+      const auto moduleId = reg.types[m_index].moduleId;
+      auto k = detail::InternName(moduleId, key);
+      reg.types[m_index].attributes.PushBack(AttributeDesc{k, detail::InternAttrValue(moduleId, value)});
       return *this;
     }
 
@@ -112,13 +114,16 @@ namespace NGIN::Reflection
     TypeBuilder &FieldAttribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
+      const auto moduleId = reg.types[m_index].moduleId;
+      auto k = detail::InternName(moduleId, key);
+      auto v = detail::InternAttrValue(moduleId, value);
       auto *fn = &detail::FieldGetterMut<MemberPtr>;
       auto &fields = reg.types[m_index].fields;
       for (auto i = NGIN::UIntSize{0}; i < fields.Size(); ++i)
       {
         if (fields[i].GetMut == reinterpret_cast<void *(*)(void *)>(fn))
         {
-          fields[i].attributes.PushBack(AttributeDesc{key, value});
+          fields[i].attributes.PushBack(AttributeDesc{k, v});
           break;
         }
       }
@@ -130,13 +135,16 @@ namespace NGIN::Reflection
     TypeBuilder &PropertyAttribute(std::string_view key, const AttrValue &value)
     {
       auto &reg = detail::GetRegistry();
+      const auto moduleId = reg.types[m_index].moduleId;
+      auto k = detail::InternName(moduleId, key);
+      auto v = detail::InternAttrValue(moduleId, value);
       auto *fn = &detail::PropertyGet<Getter>;
       auto &props = reg.types[m_index].properties;
       for (auto i = NGIN::UIntSize{0}; i < props.Size(); ++i)
       {
         if (props[i].Get == fn)
         {
-          props[i].attributes.PushBack(AttributeDesc{key, value});
+          props[i].attributes.PushBack(AttributeDesc{k, v});
           break;
         }
       }
@@ -609,6 +617,48 @@ namespace NGIN::Reflection
         return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
       }
     };
+
+    template <auto Fn>
+    inline Function RegisterFunctionUnlocked(std::string_view name)
+    {
+      static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "RegisterFunction requires function pointer");
+      using Traits = detail::FunctionTraits<decltype(Fn)>;
+      auto &reg = detail::GetRegistry();
+      detail::FunctionRuntimeDesc f{};
+      auto nameId = detail::InternNameId(ModuleId{0}, name);
+      f.name = detail::NameFromId(nameId);
+      f.nameId = nameId;
+      if constexpr (std::is_void_v<typename Traits::Ret>)
+      {
+        f.returnTypeId = 0;
+      }
+      else
+      {
+        auto rsv = NGIN::Meta::TypeName<typename Traits::Ret>::qualifiedName;
+        f.returnTypeId = NGIN::Hashing::FNV1a64(rsv.data(), rsv.size());
+      }
+      if constexpr (Traits::Arity > 0)
+      {
+        using Tuple = typename Traits::Args;
+        detail::PushCtorParamIds<Tuple>(f.paramTypeIds, std::make_index_sequence<Traits::Arity>{});
+      }
+      f.Invoke = &Traits::template Invoke<Fn>;
+      f.InvokeExact = &Traits::template InvokeExact<Fn>;
+      reg.functions.PushBack(std::move(f));
+      const auto newIndex = static_cast<NGIN::UInt32>(reg.functions.Size() - 1);
+      auto *vecPtr = reg.functionOverloads.GetPtr(reg.functions[newIndex].nameId);
+      if (!vecPtr)
+      {
+        NGIN::Containers::Vector<NGIN::UInt32> v;
+        v.PushBack(newIndex);
+        reg.functionOverloads.Insert(reg.functions[newIndex].nameId, std::move(v));
+      }
+      else
+      {
+        vecPtr->PushBack(newIndex);
+      }
+      return Function{FunctionHandle{newIndex}};
+    }
   } // namespace detail
 
   template <class T>
@@ -619,7 +669,7 @@ namespace NGIN::Reflection
     static_assert(std::is_same_v<typename Traits::Class, T>, "Method must belong to T");
     auto &reg = detail::GetRegistry();
     detail::MethodRuntimeDesc m{};
-    auto nameId = detail::InternNameId(name);
+    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     m.name = detail::NameFromId(nameId);
     m.nameId = nameId;
     // Return type id
@@ -665,7 +715,7 @@ namespace NGIN::Reflection
   inline TypeBuilder<T> &TypeBuilder<T>::StaticMethod(std::string_view name)
   {
     static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "StaticMethod requires function pointer");
-    (void)RegisterFunction<Fn>(name);
+    (void)detail::RegisterFunctionUnlocked<Fn>(name);
     return *this;
   }
 
@@ -678,7 +728,7 @@ namespace NGIN::Reflection
     static_assert(std::is_same_v<typename Traits::Class, T>, "Property getter must belong to T");
     auto &reg = detail::GetRegistry();
     detail::PropertyRuntimeDesc p{};
-    auto nameId = detail::InternNameId(name);
+    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     p.nameId = nameId;
     p.name = detail::NameFromId(nameId);
     using Ret = typename Traits::Ret;
@@ -706,7 +756,7 @@ namespace NGIN::Reflection
     static_assert(std::is_same_v<typename SetTraits::Class, T>, "Property setter must belong to T");
     auto &reg = detail::GetRegistry();
     detail::PropertyRuntimeDesc p{};
-    auto nameId = detail::InternNameId(name);
+    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     p.nameId = nameId;
     p.name = detail::NameFromId(nameId);
     using Ret = typename GetTraits::Ret;
@@ -738,7 +788,7 @@ namespace NGIN::Reflection
       info.ToSigned = &detail::EnumToSigned<T>;
     }
     detail::EnumValueRuntimeDesc ev{};
-    auto nameId = detail::InternNameId(name);
+    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     ev.nameId = nameId;
     ev.name = detail::NameFromId(nameId);
     ev.value = Any{value};
@@ -852,13 +902,16 @@ namespace NGIN::Reflection
   {
     using Traits = detail::MethodTraits<decltype(MemFn)>;
     auto &reg = detail::GetRegistry();
+    const auto moduleId = reg.types[m_index].moduleId;
+    auto k = detail::InternName(moduleId, key);
+    auto v = detail::InternAttrValue(moduleId, value);
     auto inv = &Traits::template Invoke<MemFn>;
     auto &methods = reg.types[m_index].methods;
     for (auto i = NGIN::UIntSize{0}; i < methods.Size(); ++i)
     {
       if (methods[i].Invoke == inv)
       {
-        methods[i].attributes.PushBack(AttributeDesc{key, value});
+        methods[i].attributes.PushBack(AttributeDesc{k, v});
         break;
       }
     }
@@ -871,42 +924,9 @@ namespace NGIN::Reflection
   inline Function RegisterFunction(std::string_view name)
   {
     static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "RegisterFunction requires function pointer");
-    using Traits = detail::FunctionTraits<decltype(Fn)>;
-    auto &reg = detail::GetRegistry();
-    detail::FunctionRuntimeDesc f{};
-    auto nameId = detail::InternNameId(name);
-    f.name = detail::NameFromId(nameId);
-    f.nameId = nameId;
-    if constexpr (std::is_void_v<typename Traits::Ret>)
-    {
-      f.returnTypeId = 0;
-    }
-    else
-    {
-      auto rsv = NGIN::Meta::TypeName<typename Traits::Ret>::qualifiedName;
-      f.returnTypeId = NGIN::Hashing::FNV1a64(rsv.data(), rsv.size());
-    }
-    if constexpr (Traits::Arity > 0)
-    {
-      using Tuple = typename Traits::Args;
-      detail::PushCtorParamIds<Tuple>(f.paramTypeIds, std::make_index_sequence<Traits::Arity>{});
-    }
-    f.Invoke = &Traits::template Invoke<Fn>;
-    f.InvokeExact = &Traits::template InvokeExact<Fn>;
-    reg.functions.PushBack(std::move(f));
-    const auto newIndex = static_cast<NGIN::UInt32>(reg.functions.Size() - 1);
-    auto *vecPtr = reg.functionOverloads.GetPtr(reg.functions[newIndex].nameId);
-    if (!vecPtr)
-    {
-      NGIN::Containers::Vector<NGIN::UInt32> v;
-      v.PushBack(newIndex);
-      reg.functionOverloads.Insert(reg.functions[newIndex].nameId, std::move(v));
-    }
-    else
-    {
-      vecPtr->PushBack(newIndex);
-    }
-    return Function{FunctionHandle{newIndex}};
+    [[maybe_unused]] auto lock = detail::LockRegistryWrite();
+    return detail::RegisterFunctionUnlocked<Fn>(name);
   }
 
 } // namespace NGIN::Reflection
+

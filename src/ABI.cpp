@@ -15,10 +15,18 @@ extern "C" NGIN_REFLECTION_API bool NGINReflectionExportV1(NGINReflectionRegistr
   if (!out)
     return false;
 
+  [[maybe_unused]] auto lock = detail::LockRegistryRead();
   const auto &reg = GetRegistry();
 
   // Pass 1: compute counts and gather unique strings
-  std::uint64_t typeCount = reg.types.Size();
+  std::vector<NGIN::UInt32> activeTypes;
+  activeTypes.reserve(reg.types.Size());
+  for (NGIN::UIntSize i = 0; i < reg.types.Size(); ++i)
+  {
+    if (reg.types[i].typeId != 0)
+      activeTypes.push_back(static_cast<NGIN::UInt32>(i));
+  }
+  std::uint64_t typeCount = static_cast<std::uint64_t>(activeTypes.size());
   std::uint64_t fieldCount = 0, methodCount = 0, ctorCount = 0, attributeCount = 0, paramCount = 0;
 
   struct HasherStr
@@ -54,9 +62,9 @@ extern "C" NGIN_REFLECTION_API bool NGINReflectionExportV1(NGINReflectionRegistr
   };
 
   // Pre-scan to count and collect strings
-  for (NGIN::UIntSize i = 0; i < reg.types.Size(); ++i)
+  for (NGIN::UIntSize i = 0; i < activeTypes.size(); ++i)
   {
-    const auto &t = reg.types[i];
+    const auto &t = reg.types[activeTypes[i]];
     fieldCount += t.fields.Size();
     methodCount += t.methods.Size();
     ctorCount += t.constructors.Size();
@@ -213,9 +221,9 @@ extern "C" NGIN_REFLECTION_API bool NGINReflectionExportV1(NGINReflectionRegistr
 
   // Fill records
   std::uint32_t fIdx = 0, mIdx = 0, cIdx = 0, aIdx = 0, pIdx = 0;
-  for (NGIN::UIntSize i = 0; i < reg.types.Size(); ++i)
+  for (NGIN::UIntSize i = 0; i < activeTypes.size(); ++i)
   {
-    const auto &t = reg.types[i];
+    const auto &t = reg.types[activeTypes[i]];
     auto &to = pTypes[i];
     to.typeId = t.typeId;
     to.qualifiedName = makeSref(t.qualifiedName);
@@ -418,3 +426,4 @@ extern "C" NGIN_REFLECTION_API bool NGINReflectionExportV1(NGINReflectionRegistr
   *out = regOut;
   return true;
 }
+

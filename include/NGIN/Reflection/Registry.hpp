@@ -7,7 +7,8 @@
 #include <NGIN/Containers/HashMap.hpp>
 #include <NGIN/Meta/TypeName.hpp>
 #include <NGIN/Hashing/FNV.hpp>
-#include <NGIN/Utilities/StringInterner.hpp>
+#include <shared_mutex>
+#include <mutex>
 
 #include <string_view>
 #include <expected>
@@ -25,7 +26,7 @@
 
 namespace NGIN::Reflection
 {
-  using NameId = NGIN::UInt32;
+  using NameId = std::string_view;
 
   // Forward decls
   template <class T>
@@ -65,9 +66,24 @@ namespace NGIN::Reflection
 
   namespace detail
   {
-    using StringInterner = NGIN::Utilities::StringInterner<>;
+    struct StringPool
+    {
+      std::string_view Intern(std::string_view s) noexcept;
+      void Clear() noexcept;
 
-    // Convenience wrappers using the global registry interner
+      NGIN::Containers::FlatHashMap<std::string_view, std::string_view> entries;
+      NGIN::Containers::Vector<std::unique_ptr<char[]>> allocations;
+    };
+
+    struct ModuleStrings
+    {
+      ModuleId moduleId{0};
+      NGIN::UInt32 typeCount{0};
+      StringPool pool{};
+    };
+
+    // Convenience wrappers using module-owned string storage.
+    NameId InternNameId(ModuleId moduleId, std::string_view s) noexcept;
     NameId InternNameId(std::string_view s) noexcept;
     bool FindNameId(std::string_view s, NameId &out) noexcept;
     std::string_view NameFromId(NameId id) noexcept;
@@ -79,13 +95,16 @@ namespace NGIN::Reflection
       return NGIN::Hashing::FNV1a64(sv.data(), sv.size());
     }
 
-    // Intern a string into the registry's string storage and return a stable view
+    // Intern a string into module-owned storage and return a stable view.
+    std::string_view InternName(ModuleId moduleId, std::string_view s) noexcept;
     std::string_view InternName(std::string_view s) noexcept;
+
+    AttrValue InternAttrValue(ModuleId moduleId, const AttrValue &value) noexcept;
 
     struct FieldRuntimeDesc
     {
       std::string_view name;
-      NameId nameId{static_cast<NameId>(-1)};
+      NameId nameId{};
       NGIN::UInt64 typeId;
       NGIN::UIntSize sizeBytes{0};
       void *(*GetMut)(void *){nullptr};
@@ -98,7 +117,7 @@ namespace NGIN::Reflection
     struct PropertyRuntimeDesc
     {
       std::string_view name;
-      NameId nameId{static_cast<NameId>(-1)};
+      NameId nameId{};
       NGIN::UInt64 typeId;
       Any (*Get)(const void *){nullptr};
       std::expected<void, Error> (*Set)(void *, const Any &){nullptr};
@@ -108,7 +127,7 @@ namespace NGIN::Reflection
     struct MethodRuntimeDesc
     {
       std::string_view name;
-      NameId nameId{static_cast<NameId>(-1)};
+      NameId nameId{};
       NGIN::UInt64 returnTypeId;
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
       std::expected<Any, Error> (*Invoke)(void *, const Any *, NGIN::UIntSize){nullptr};
@@ -119,7 +138,7 @@ namespace NGIN::Reflection
     struct FunctionRuntimeDesc
     {
       std::string_view name;
-      NameId nameId{static_cast<NameId>(-1)};
+      NameId nameId{};
       NGIN::UInt64 returnTypeId;
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
       std::expected<Any, Error> (*Invoke)(const Any *, NGIN::UIntSize){nullptr};
@@ -130,7 +149,7 @@ namespace NGIN::Reflection
     struct EnumValueRuntimeDesc
     {
       std::string_view name;
-      NameId nameId{static_cast<NameId>(-1)};
+      NameId nameId{};
       Any value{};
       std::int64_t svalue{0};
       std::uint64_t uvalue{0};
@@ -167,7 +186,7 @@ namespace NGIN::Reflection
     struct TypeRuntimeDesc
     {
       std::string_view qualifiedName;
-      NameId qualifiedNameId{static_cast<NameId>(-1)};
+      NameId qualifiedNameId{};
       NGIN::UInt64 typeId;
       ModuleId moduleId{0};
       NGIN::UInt32 generation{0};
@@ -193,11 +212,51 @@ namespace NGIN::Reflection
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> byName;
       NGIN::Containers::Vector<FunctionRuntimeDesc> functions;
       NGIN::Containers::FlatHashMap<NameId, NGIN::Containers::Vector<NGIN::UInt32>> functionOverloads;
-
-      StringInterner names;
+      NGIN::Containers::Vector<ModuleStrings> modules;
+      NGIN::Containers::FlatHashMap<ModuleId, NGIN::UInt32> moduleIndex;
+      mutable std::shared_mutex mutex;
     };
 
     Registry &GetRegistry() noexcept;
+
+    class RegistryReadLock
+    {
+    public:
+      RegistryReadLock() noexcept;
+      RegistryReadLock(RegistryReadLock &&other) noexcept;
+      RegistryReadLock &operator=(RegistryReadLock &&other) noexcept;
+      ~RegistryReadLock() noexcept;
+
+    private:
+      bool m_active{false};
+    };
+
+    class RegistryWriteLock
+    {
+    public:
+      RegistryWriteLock() noexcept;
+      RegistryWriteLock(RegistryWriteLock &&other) noexcept;
+      RegistryWriteLock &operator=(RegistryWriteLock &&other) noexcept;
+      ~RegistryWriteLock() noexcept;
+
+    private:
+      bool m_active{false};
+    };
+
+    RegistryReadLock LockRegistryRead() noexcept;
+    RegistryWriteLock LockRegistryWrite() noexcept;
+
+    bool IsTypeAlive(const Registry &reg, NGIN::UInt32 index, NGIN::UInt32 generation) noexcept;
+    bool IsTypeAlive(const Registry &reg, TypeHandle h) noexcept;
+    bool IsFieldAlive(const Registry &reg, FieldHandle h) noexcept;
+    bool IsPropertyAlive(const Registry &reg, PropertyHandle h) noexcept;
+    bool IsEnumValueAlive(const Registry &reg, EnumValueHandle h) noexcept;
+    bool IsCtorAlive(const Registry &reg, ConstructorHandle h) noexcept;
+    bool IsBaseAlive(const Registry &reg, BaseHandle h) noexcept;
+    bool IsMethodAlive(const Registry &reg, NGIN::UInt32 typeIndex, NGIN::UInt32 typeGeneration, NGIN::UInt32 methodIndex) noexcept;
+    bool IsFunctionAlive(const Registry &reg, FunctionHandle h) noexcept;
+    void IncrementModuleTypeCount(ModuleId moduleId) noexcept;
+    void DecrementModuleTypeCount(ModuleId moduleId) noexcept;
 
     template <class T>
     concept HasNginReflectWithTypeBuilder = requires(TypeBuilder<T> &b) {
@@ -321,7 +380,7 @@ namespace NGIN::Reflection
       return {};
     }
 
-    // Ensure a type is present; returns the type index
+    // Ensure a type is present; returns the type index. Caller must hold a write lock.
     template <class T>
     NGIN::UInt32 EnsureRegistered(ModuleId moduleId = ModuleId{0})
     {
@@ -334,7 +393,7 @@ namespace NGIN::Reflection
 
       // Create a new record with defaults
       TypeRuntimeDesc rec{};
-      rec.qualifiedNameId = InternNameId(NGIN::Meta::TypeName<U>::qualifiedName);
+      rec.qualifiedNameId = InternNameId(moduleId, NGIN::Meta::TypeName<U>::qualifiedName);
       rec.qualifiedName = NameFromId(rec.qualifiedNameId); // default name derived; user override optional
       rec.typeId = tid;
       rec.moduleId = moduleId;
@@ -356,6 +415,7 @@ namespace NGIN::Reflection
 
       const auto idx = static_cast<NGIN::UInt32>(reg.types.Size());
       reg.types.PushBack(std::move(rec));
+      IncrementModuleTypeCount(moduleId);
       reg.byTypeId.Insert(tid, idx);
       reg.byName.Insert(reg.types[idx].qualifiedNameId, idx);
       // MSVC sometimes prefixes qualified names with "class ", "struct ", etc.
@@ -367,7 +427,7 @@ namespace NGIN::Reflection
           if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
           {
             auto trimmed = qn.substr(prefix.size());
-            auto aliasId = InternNameId(trimmed);
+            auto aliasId = InternNameId(moduleId, trimmed);
             reg.byName.Insert(aliasId, idx);
           }
         };
@@ -402,11 +462,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (!m_h.IsValid())
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
-             m_h.fieldIndex < reg.types[m_h.typeIndex].fields.Size();
+      return detail::IsFieldAlive(reg, m_h);
     }
     [[nodiscard]] std::string_view Name() const;
     [[nodiscard]] NGIN::UInt64 TypeId() const;
@@ -437,14 +497,15 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> Get(const Obj &obj) const
     {
       using U = std::remove_cvref_t<T>;
-      if (!IsValid())
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       const auto &reg = detail::GetRegistry();
+      if (!detail::IsFieldAlive(reg, m_h))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
       const auto want = detail::TypeIdOf<U>();
       if (f.typeId != want)
         return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
-      const auto *ptr = static_cast<const U *>(GetConst(&obj));
+      const auto *ptr = static_cast<const U *>(f.GetConst(&obj));
       return *ptr;
     }
 
@@ -453,14 +514,15 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<void, Error> Set(Obj &obj, T &&value) const
     {
       using U = std::remove_cvref_t<T>;
-      if (!IsValid())
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       const auto &reg = detail::GetRegistry();
+      if (!detail::IsFieldAlive(reg, m_h))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &f = reg.types[m_h.typeIndex].fields[m_h.fieldIndex];
       const auto want = detail::TypeIdOf<U>();
       if (f.typeId != want)
         return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
-      auto *ptr = static_cast<U *>(GetMut(&obj));
+      auto *ptr = static_cast<U *>(f.GetMut(&obj));
       *ptr = static_cast<U>(std::forward<T>(value));
       return {};
     }
@@ -483,11 +545,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (!m_h.IsValid())
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
-             m_h.propertyIndex < reg.types[m_h.typeIndex].properties.Size();
+      return detail::IsPropertyAlive(reg, m_h);
     }
     [[nodiscard]] std::string_view Name() const;
     [[nodiscard]] NGIN::UInt64 TypeId() const;
@@ -514,14 +576,17 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> Get(const Obj &obj) const
     {
       using U = std::remove_cvref_t<T>;
-      if (!IsValid())
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       const auto &reg = detail::GetRegistry();
+      if (!detail::IsPropertyAlive(reg, m_h))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &p = reg.types[m_h.typeIndex].properties[m_h.propertyIndex];
       const auto want = detail::TypeIdOf<U>();
       if (p.typeId != want)
         return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
-      auto any = GetAny(obj);
+      Any any = Any::MakeVoid();
+      if (p.Get)
+        any = p.Get(static_cast<const void *>(std::addressof(obj)));
       if (any.GetTypeId() != want)
         return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
       return any.template Cast<U>();
@@ -552,11 +617,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (!m_h.IsValid())
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
-             m_h.valueIndex < reg.types[m_h.typeIndex].enumInfo.values.Size();
+      return detail::IsEnumValueAlive(reg, m_h);
     }
     [[nodiscard]] std::string_view Name() const;
     [[nodiscard]] Any Value() const;
@@ -577,11 +642,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (m_typeIndex == static_cast<NGIN::UInt32>(-1))
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_typeIndex < reg.types.Size() && reg.types[m_typeIndex].generation == m_typeGeneration &&
-             m_methodIndex < reg.types[m_typeIndex].methods.Size();
+      return detail::IsMethodAlive(reg, m_typeIndex, m_typeGeneration, m_methodIndex);
     }
     [[nodiscard]] std::string_view GetName() const;
     [[nodiscard]] NGIN::UIntSize GetParameterCount() const;
@@ -716,6 +781,10 @@ namespace NGIN::Reflection
 
     [[nodiscard]] std::expected<Any, Error> Invoke(std::span<const Any> args) const
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsFunctionAlive(reg, NGIN::Reflection::FunctionHandle{m_functionIndex}))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       if (args.size() != m_argTypeIds.Size())
         return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
       for (NGIN::UIntSize i = 0; i < m_argTypeIds.Size(); ++i)
@@ -723,7 +792,6 @@ namespace NGIN::Reflection
         if (args[i].GetTypeId() != m_argTypeIds[i])
           return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
       }
-      const auto &reg = detail::GetRegistry();
       const auto &f = reg.functions[m_functionIndex];
       bool needsConvert = false;
       for (NGIN::UIntSize i = 0; i < m_conversions.Size(); ++i)
@@ -781,18 +849,20 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (m_typeIndex == static_cast<NGIN::UInt32>(-1))
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_typeIndex < reg.types.Size() && reg.types[m_typeIndex].generation == m_typeGeneration &&
-             m_methodIndex < reg.types[m_typeIndex].methods.Size();
+      return detail::IsMethodAlive(reg, m_typeIndex, m_typeGeneration, m_methodIndex);
     }
     [[nodiscard]] Method MethodHandle() const { return Method{m_typeIndex, m_methodIndex, m_typeGeneration}; }
     [[nodiscard]] NGIN::UIntSize ArgumentCount() const { return m_argTypeIds.Size(); }
 
     [[nodiscard]] std::expected<Any, Error> Invoke(void *obj, std::span<const Any> args) const
     {
-      if (!IsValid())
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsMethodAlive(reg, m_typeIndex, m_typeGeneration, m_methodIndex))
         return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       if (args.size() != m_argTypeIds.Size())
         return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
@@ -801,7 +871,6 @@ namespace NGIN::Reflection
         if (args[i].GetTypeId() != m_argTypeIds[i])
           return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
       }
-      const auto &reg = detail::GetRegistry();
       const auto &m = reg.types[m_typeIndex].methods[m_methodIndex];
       bool needsConvert = false;
       for (NGIN::UIntSize i = 0; i < m_conversions.Size(); ++i)
@@ -876,11 +945,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (!m_h.IsValid())
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
-             m_h.ctorIndex < reg.types[m_h.typeIndex].constructors.Size();
+      return detail::IsCtorAlive(reg, m_h);
     }
     [[nodiscard]] NGIN::UIntSize ParameterCount() const;
     [[nodiscard]] std::expected<Any, Error> Construct(const Any *args, NGIN::UIntSize count) const;
@@ -917,44 +986,79 @@ namespace NGIN::Reflection
     MethodOverloads() = default;
     MethodOverloads(NGIN::UInt32 typeIndex,
                     NGIN::UInt32 typeGeneration,
-                    const NGIN::Containers::Vector<NGIN::UInt32> *indices)
-        : m_typeIndex(typeIndex), m_typeGeneration(typeGeneration), m_indices(indices)
+                    NameId nameId)
+        : m_typeIndex(typeIndex), m_typeGeneration(typeGeneration), m_nameId(nameId)
     {
     }
 
     [[nodiscard]] bool IsValid() const noexcept
     {
-      if (!m_indices || m_typeIndex == static_cast<NGIN::UInt32>(-1))
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      if (m_typeIndex == static_cast<NGIN::UInt32>(-1))
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_typeIndex < reg.types.Size() && reg.types[m_typeIndex].generation == m_typeGeneration;
+      if (!detail::IsTypeAlive(reg, m_typeIndex, m_typeGeneration))
+        return false;
+      return reg.types[m_typeIndex].methodOverloads.GetPtr(m_nameId) != nullptr;
     }
-    [[nodiscard]] NGIN::UIntSize Size() const { return IsValid() ? m_indices->Size() : 0; }
+    [[nodiscard]] NGIN::UIntSize Size() const
+    {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsTypeAlive(reg, m_typeIndex, m_typeGeneration))
+        return 0;
+      const auto *vec = reg.types[m_typeIndex].methodOverloads.GetPtr(m_nameId);
+      return vec ? vec->Size() : 0;
+    }
     [[nodiscard]] Method MethodAt(NGIN::UIntSize i) const
     {
-      if (!IsValid())
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      if (!detail::IsTypeAlive(reg, m_typeIndex, m_typeGeneration))
         return Method{};
-      return Method{m_typeIndex, (*m_indices)[i], m_typeGeneration};
+      const auto *vec = reg.types[m_typeIndex].methodOverloads.GetPtr(m_nameId);
+      if (!vec || i >= vec->Size())
+        return Method{};
+      return Method{m_typeIndex, (*vec)[i], m_typeGeneration};
     }
 
   private:
     NGIN::UInt32 m_typeIndex{static_cast<NGIN::UInt32>(-1)};
     NGIN::UInt32 m_typeGeneration{0};
-    const NGIN::Containers::Vector<NGIN::UInt32> *m_indices{nullptr};
+    NameId m_nameId{};
   };
 
   class FunctionOverloads
   {
   public:
     FunctionOverloads() = default;
-    explicit FunctionOverloads(const NGIN::Containers::Vector<NGIN::UInt32> *indices) : m_indices(indices) {}
+    explicit FunctionOverloads(NameId nameId) : m_nameId(nameId) {}
 
-    [[nodiscard]] bool IsValid() const noexcept { return m_indices != nullptr; }
-    [[nodiscard]] NGIN::UIntSize Size() const { return m_indices ? m_indices->Size() : 0; }
-    [[nodiscard]] Function FunctionAt(NGIN::UIntSize i) const { return Function{FunctionHandle{(*m_indices)[i]}}; }
+    [[nodiscard]] bool IsValid() const noexcept
+    {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      return reg.functionOverloads.GetPtr(m_nameId) != nullptr;
+    }
+    [[nodiscard]] NGIN::UIntSize Size() const
+    {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      const auto *vec = reg.functionOverloads.GetPtr(m_nameId);
+      return vec ? vec->Size() : 0;
+    }
+    [[nodiscard]] Function FunctionAt(NGIN::UIntSize i) const
+    {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
+      const auto &reg = detail::GetRegistry();
+      const auto *vec = reg.functionOverloads.GetPtr(m_nameId);
+      if (!vec || i >= vec->Size())
+        return Function{};
+      return Function{FunctionHandle{(*vec)[i]}};
+    }
 
   private:
-    const NGIN::Containers::Vector<NGIN::UInt32> *m_indices{nullptr};
+    NameId m_nameId{};
   };
 
   class Type
@@ -965,10 +1069,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (!m_h.IsValid())
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_h.index < reg.types.Size() && reg.types[m_h.index].generation == m_h.generation;
+      return detail::IsTypeAlive(reg, m_h);
     }
     [[nodiscard]] std::string_view QualifiedName() const;
     [[nodiscard]] NGIN::UInt64 GetTypeId() const;
@@ -1010,13 +1115,13 @@ namespace NGIN::Reflection
     requires (!detail::FunctionSignature<R>)
     [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name) const
     {
-      if (!IsValid())
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       const auto &reg = detail::GetRegistry();
+      if (!detail::IsTypeAlive(reg, m_h))
+        return std::unexpected(Error{ErrorCode::InvalidArgument, "stale handle"});
       const auto &tdesc = reg.types[m_h.index];
       NameId nid{};
-      if (!detail::FindNameId(name, nid))
-        return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+      (void)detail::FindNameId(name, nid);
       auto *vec = tdesc.methodOverloads.GetPtr(nid);
       if (!vec)
         return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
@@ -1170,10 +1275,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (!m_h.IsValid())
         return false;
       const auto &reg = detail::GetRegistry();
-      if (m_h.typeIndex >= reg.types.Size() || reg.types[m_h.typeIndex].generation != m_h.typeGeneration)
+      if (!detail::IsTypeAlive(reg, m_h.typeIndex, m_h.typeGeneration))
         return false;
       const auto &t = reg.types[m_h.typeIndex];
       switch (m_h.kind)
@@ -1210,11 +1316,11 @@ namespace NGIN::Reflection
 
     [[nodiscard]] bool IsValid() const noexcept
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryRead();
       if (!m_h.IsValid())
         return false;
       const auto &reg = detail::GetRegistry();
-      return m_h.typeIndex < reg.types.Size() && reg.types[m_h.typeIndex].generation == m_h.typeGeneration &&
-             m_h.baseIndex < reg.types[m_h.typeIndex].bases.Size();
+      return detail::IsBaseAlive(reg, m_h);
     }
     [[nodiscard]] Type BaseType() const;
     [[nodiscard]] void *Upcast(void *obj) const;
@@ -1255,10 +1361,10 @@ namespace NGIN::Reflection
   requires (!detail::FunctionSignature<R>)
   [[nodiscard]] ExpectedFunction ResolveFunction(std::string_view name)
   {
+    [[maybe_unused]] auto lock = detail::LockRegistryRead();
     const auto &reg = detail::GetRegistry();
     NameId nid{};
-    if (!detail::FindNameId(name, nid))
-      return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
+    (void)detail::FindNameId(name, nid);
     auto *vec = reg.functionOverloads.GetPtr(nid);
     if (!vec)
       return std::unexpected(Error{ErrorCode::NotFound, "no overloads"});
@@ -1318,10 +1424,12 @@ namespace NGIN::Reflection
   // Queries
   ExpectedType GetType(std::string_view name);
   std::optional<Type> FindType(std::string_view name);
+  bool UnregisterModule(ModuleId moduleId);
 
   template <class T>
   Type GetType()
   {
+    [[maybe_unused]] auto lock = detail::LockRegistryWrite();
     auto idx = detail::EnsureRegistered<T>();
     const auto &reg = detail::GetRegistry();
     return Type{TypeHandle{idx, reg.types[idx].generation}};
@@ -1331,6 +1439,7 @@ namespace NGIN::Reflection
   std::optional<Type> TryGetType()
   {
     using U = std::remove_cvref_t<T>;
+    [[maybe_unused]] auto lock = detail::LockRegistryRead();
     auto &reg = detail::GetRegistry();
     const auto tid = detail::TypeIdOf<U>();
     if (auto *p = reg.byTypeId.GetPtr(tid))
@@ -1342,8 +1451,10 @@ namespace NGIN::Reflection
   template <class T>
   inline bool AutoRegister()
   {
+    [[maybe_unused]] auto lock = detail::LockRegistryWrite();
     (void)detail::EnsureRegistered<T>();
     return true;
   }
 
 } // namespace NGIN::Reflection
+

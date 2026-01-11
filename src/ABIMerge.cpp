@@ -104,19 +104,20 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
 
   auto convertAttr = [&](const NGINReflectionAttrV1 &a) -> AttributeDesc {
     AttributeDesc out{};
-    out.key = InternName(view(a.key));
+    out.key = InternName(options.moduleId, view(a.key));
     switch (a.kind)
     {
       case NGINReflectionAttrKindV1::Bool: out.value = static_cast<bool>(a.value.b8 != 0u); break;
       case NGINReflectionAttrKindV1::Int:  out.value = static_cast<std::int64_t>(a.value.i64); break;
       case NGINReflectionAttrKindV1::Dbl:  out.value = static_cast<double>(a.value.d); break;
-      case NGINReflectionAttrKindV1::Str:  out.value = InternName(view(a.value.sref)); break;
+      case NGINReflectionAttrKindV1::Str:  out.value = InternName(options.moduleId, view(a.value.sref)); break;
       case NGINReflectionAttrKindV1::Type: out.value = static_cast<NGIN::UInt64>(a.value.typeId); break;
       default: break;
     }
     return out;
   };
 
+  [[maybe_unused]] auto lock = detail::LockRegistryWrite();
   auto &reg = GetRegistry();
   std::uint64_t added = 0, conflicted = 0;
 
@@ -131,9 +132,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
       if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
       {
         auto trimmed = qn.substr(prefix.size());
-        NameId aliasId{};
-        if (FindNameId(trimmed, aliasId))
-          removeNameIndex(aliasId, index);
+        removeNameIndex(trimmed, index);
       }
     };
     remove_alias("class ");
@@ -152,7 +151,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
       if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
       {
         auto trimmed = qn.substr(prefix.size());
-        auto aliasId = InternNameId(trimmed);
+        auto aliasId = InternNameId(options.moduleId, trimmed);
         reg.byName.Insert(aliasId, index);
       }
     };
@@ -203,7 +202,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     }
 
     TypeRuntimeDesc rec{};
-    rec.qualifiedNameId = InternNameId(view(ti.qualifiedName));
+    rec.qualifiedNameId = InternNameId(options.moduleId, view(ti.qualifiedName));
     rec.qualifiedName = NameFromId(rec.qualifiedNameId);
     rec.typeId = typeId;
     rec.moduleId = options.moduleId;
@@ -224,8 +223,8 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
             !validRange(fi.attrBegin, fi.attrCount, h.attributeCount))
           return fail("corrupt field record");
         FieldRuntimeDesc fd{};
-        fd.name = InternName(view(fi.name));
-        fd.nameId = InternNameId(fd.name);
+        fd.name = InternName(options.moduleId, view(fi.name));
+        fd.nameId = InternNameId(options.moduleId, fd.name);
         fd.typeId = fi.typeId;
         fd.sizeBytes = fi.sizeBytes;
         if (fi.attrCount)
@@ -256,8 +255,8 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
             !validRange(mi.attrBegin, mi.attrCount, h.attributeCount))
           return fail("corrupt method record");
         MethodRuntimeDesc md{};
-        md.name = InternName(view(mi.name));
-        const auto nameId = InternNameId(md.name);
+        md.name = InternName(options.moduleId, view(mi.name));
+        const auto nameId = InternNameId(options.moduleId, md.name);
         md.nameId = nameId;
         md.returnTypeId = mi.returnTypeId;
         if (mi.paramCount)
@@ -353,6 +352,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     else
     {
       reg.types.PushBack(std::move(rec));
+      detail::IncrementModuleTypeCount(options.moduleId);
       reg.byTypeId.Insert(typeId, targetIndex);
     }
     reg.byName.Insert(reg.types[targetIndex].qualifiedNameId, targetIndex);
@@ -376,3 +376,4 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   MergeOptions options{};
   return MergeRegistryV1(module, options, stats, error);
 }
+

@@ -38,6 +38,7 @@ namespace NGIN::Reflection
     template <class T>
     void RegisterType() const
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryWrite();
       (void)detail::EnsureRegistered<T>(m_moduleId);
     }
 
@@ -45,6 +46,7 @@ namespace NGIN::Reflection
     template <class... T>
     void RegisterTypes() const
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryWrite();
       (detail::EnsureRegistered<T>(m_moduleId), ...);
     }
 
@@ -52,6 +54,7 @@ namespace NGIN::Reflection
     template <class Fn>
     decltype(auto) WithRegistry(Fn &&fn) const
     {
+      [[maybe_unused]] auto lock = detail::LockRegistryWrite();
       return std::forward<Fn>(fn)(detail::GetRegistry());
     }
 
@@ -102,4 +105,5 @@ namespace NGIN::Reflection
   }
 
 } // namespace NGIN::Reflection
+
 
