@@ -43,7 +43,8 @@ namespace NGIN::Reflection
 #if defined(_MSC_VER)
       if (!oldName.empty())
       {
-        auto remove_alias = [&](std::string_view prefix) {
+        auto remove_alias = [&](std::string_view prefix)
+        {
           if (oldName.size() > prefix.size() && oldName.substr(0, prefix.size()) == prefix)
           {
             auto trimmed = oldName.substr(prefix.size());
@@ -65,7 +66,8 @@ namespace NGIN::Reflection
 #if defined(_MSC_VER)
       {
         auto qn = typeDesc.qualifiedName;
-        auto add_alias = [&](std::string_view prefix) {
+        auto add_alias = [&](std::string_view prefix)
+        {
           if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
           {
             auto trimmed = qn.substr(prefix.size());
@@ -88,7 +90,7 @@ namespace NGIN::Reflection
     {
       using MemberT = detail::MemberTypeT<MemberPtr>;
       auto &reg = detail::GetRegistry();
-      detail::FieldRuntimeDesc f{};
+      detail::FieldDescriptor f{};
       {
         auto svName = name.empty() ? detail::MemberNameFromPretty<MemberPtr>() : name;
         if (!svName.empty())
@@ -455,7 +457,7 @@ namespace NGIN::Reflection
     }
 
     template <class Tuple, std::size_t... I>
-    inline void PushParamIds(MethodRuntimeDesc &m, std::index_sequence<I...>)
+    inline void PushParamIds(MethodDescriptor &m, std::index_sequence<I...>)
     {
       (m.paramTypeIds.PushBack(ParamTypeId<I, Tuple>()), ...);
     }
@@ -670,7 +672,7 @@ namespace NGIN::Reflection
       static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "RegisterFunction requires function pointer");
       using Traits = detail::FunctionTraits<decltype(Fn)>;
       auto &reg = detail::GetRegistry();
-      detail::FunctionRuntimeDesc f{};
+      detail::FunctionDescriptor f{};
       auto nameId = detail::InternNameId(moduleId, name);
       f.name = detail::NameFromId(nameId);
       f.nameId = nameId;
@@ -716,7 +718,7 @@ namespace NGIN::Reflection
     using Traits = detail::MethodTraits<decltype(MemFn)>;
     static_assert(std::is_same_v<typename Traits::Class, T>, "Method must belong to T");
     auto &reg = detail::GetRegistry();
-    detail::MethodRuntimeDesc m{};
+    detail::MethodDescriptor m{};
     auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     m.name = detail::NameFromId(nameId);
     m.nameId = nameId;
@@ -777,7 +779,7 @@ namespace NGIN::Reflection
     using Traits = detail::GetterTraits<decltype(Getter)>;
     static_assert(std::is_same_v<typename Traits::Class, T>, "Property getter must belong to T");
     auto &reg = detail::GetRegistry();
-    detail::PropertyRuntimeDesc p{};
+    detail::PropertyDescriptor p{};
     auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     p.nameId = nameId;
     p.name = detail::NameFromId(nameId);
@@ -805,7 +807,7 @@ namespace NGIN::Reflection
     static_assert(std::is_same_v<typename GetTraits::Class, T>, "Property getter must belong to T");
     static_assert(std::is_same_v<typename SetTraits::Class, T>, "Property setter must belong to T");
     auto &reg = detail::GetRegistry();
-    detail::PropertyRuntimeDesc p{};
+    detail::PropertyDescriptor p{};
     auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     p.nameId = nameId;
     p.name = detail::NameFromId(nameId);
@@ -837,7 +839,7 @@ namespace NGIN::Reflection
       info.ToUnsigned = &detail::EnumToUnsigned<T>;
       info.ToSigned = &detail::EnumToSigned<T>;
     }
-    detail::EnumValueRuntimeDesc ev{};
+    detail::EnumValueDescriptor ev{};
     auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
     ev.nameId = nameId;
     ev.name = detail::NameFromId(nameId);
@@ -867,7 +869,7 @@ namespace NGIN::Reflection
     static_assert(std::is_base_of_v<BaseT, T>, "BaseT must be a base of T");
     auto &reg = detail::GetRegistry();
     auto baseIndex = detail::EnsureRegistered<BaseT>(reg.types[m_index].moduleId);
-    detail::BaseRuntimeDesc b{};
+    detail::BaseDescriptor b{};
     b.baseTypeIndex = baseIndex;
     b.baseTypeId = reg.types[baseIndex].typeId;
     b.Upcast = &detail::Upcast<T, BaseT>;
@@ -888,7 +890,7 @@ namespace NGIN::Reflection
     static_assert(std::is_same_v<typename Traits::Derived, T>, "Downcast derived type mismatch");
     auto &reg = detail::GetRegistry();
     auto baseIndex = detail::EnsureRegistered<BaseT>(reg.types[m_index].moduleId);
-    detail::BaseRuntimeDesc b{};
+    detail::BaseDescriptor b{};
     b.baseTypeIndex = baseIndex;
     b.baseTypeId = reg.types[baseIndex].typeId;
     b.Upcast = &detail::Upcast<T, BaseT>;
@@ -909,7 +911,7 @@ namespace NGIN::Reflection
   inline TypeBuilder<T> &TypeBuilder<T>::Constructor()
   {
     auto &reg = detail::GetRegistry();
-    detail::CtorRuntimeDesc c{};
+    detail::ConstructorDescriptor c{};
     if constexpr (sizeof...(A) > 0)
     {
       using Tuple = std::tuple<A...>;

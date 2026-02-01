@@ -1155,14 +1155,17 @@ namespace NGIN::Reflection
     auto &reg = GetRegistry();
     bool removed = false;
 
-    auto removeNameIndex = [&](NameId id, NGIN::UInt32 index) {
+    auto removeNameIndex = [&](NameId id, NGIN::UInt32 index)
+    {
       if (auto *p = reg.byName.GetPtr(id); p && *p == index)
         reg.byName.Remove(id);
     };
 
-    auto removeAliases = [&](std::string_view qn, NGIN::UInt32 index) {
+    auto removeAliases = [&](std::string_view qn, NGIN::UInt32 index)
+    {
 #if defined(_MSC_VER)
-      auto remove_alias = [&](std::string_view prefix) {
+      auto remove_alias = [&](std::string_view prefix)
+      {
         if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
         {
           auto trimmed = qn.substr(prefix.size());
@@ -1231,7 +1234,7 @@ namespace NGIN::Reflection
       if (!qn.empty())
         removeAliases(qn, i);
 
-      detail::TypeRuntimeDesc cleared{};
+      detail::TypeDescriptor cleared{};
       cleared.generation = static_cast<NGIN::UInt32>(t.generation + 1u);
       reg.types[i] = std::move(cleared);
       detail::DecrementModuleTypeCount(moduleId);
@@ -1899,5 +1902,3 @@ namespace NGIN::Reflection
   }
 
 } // namespace NGIN::Reflection
-
-

@@ -14,7 +14,8 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
                                        MergeStats *stats,
                                        const char **error) noexcept
 {
-  auto fail = [&](const char *msg) noexcept {
+  auto fail = [&](const char *msg) noexcept
+  {
     if (error)
       *error = msg;
     return false;
@@ -27,17 +28,19 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   if (h.totalSize > module.blobSize)
     return fail("blob size mismatch");
   // Basic bounds sanity: sections within blob
-  auto within = [&](std::uint64_t off, std::uint64_t sz) -> bool {
-    if (off == 0 && sz == 0) return true; // allow empty
+  auto within = [&](std::uint64_t off, std::uint64_t sz) -> bool
+  {
+    if (off == 0 && sz == 0)
+      return true; // allow empty
     const std::uint64_t end = off + sz;
     return end <= module.blobSize && off <= module.blobSize;
   };
-  const std::uint64_t typesSize   = h.typeCount    * sizeof(NGINReflectionTypeV1);
-  const std::uint64_t fieldsSize  = h.fieldCount   * sizeof(NGINReflectionFieldV1);
-  const std::uint64_t methodsSize = h.methodCount  * sizeof(NGINReflectionMethodV1);
-  const std::uint64_t ctorsSize   = h.ctorCount    * sizeof(NGINReflectionCtorV1);
-  const std::uint64_t attrsSize   = h.attributeCount * sizeof(NGINReflectionAttrV1);
-  const std::uint64_t paramsSize  = h.paramCount   * sizeof(std::uint64_t);
+  const std::uint64_t typesSize = h.typeCount * sizeof(NGINReflectionTypeV1);
+  const std::uint64_t fieldsSize = h.fieldCount * sizeof(NGINReflectionFieldV1);
+  const std::uint64_t methodsSize = h.methodCount * sizeof(NGINReflectionMethodV1);
+  const std::uint64_t ctorsSize = h.ctorCount * sizeof(NGINReflectionCtorV1);
+  const std::uint64_t attrsSize = h.attributeCount * sizeof(NGINReflectionAttrV1);
+  const std::uint64_t paramsSize = h.paramCount * sizeof(std::uint64_t);
   const std::uint64_t methodFpSize = h.methodCount * sizeof(NGINReflectionMethodInvokeFnV1);
   const std::uint64_t ctorFpSize = h.ctorCount * sizeof(NGINReflectionCtorConstructFnV1);
   if (!within(h.typesOff, typesSize) ||
@@ -55,21 +58,23 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
 
   // Map raw pointers to sections
   const auto *base = static_cast<const std::uint8_t *>(module.blob);
-  const auto *types   = reinterpret_cast<const NGINReflectionTypeV1  *>(base + h.typesOff);
-  const auto *fields  = reinterpret_cast<const NGINReflectionFieldV1 *>(base + h.fieldsOff);
-  const auto *methods = reinterpret_cast<const NGINReflectionMethodV1*>(base + h.methodsOff);
-  const auto *ctors   = reinterpret_cast<const NGINReflectionCtorV1  *>(base + h.ctorsOff);
-  const auto *attrs   = reinterpret_cast<const NGINReflectionAttrV1  *>(base + h.attrsOff);
-  const auto *params  = reinterpret_cast<const std::uint64_t         *>(base + h.paramsOff);
-  const auto *strings = reinterpret_cast<const char                   *>(base + h.stringsOff);
-  const auto *methodFp= (h.methodInvokeOff ? reinterpret_cast<const NGINReflectionMethodInvokeFnV1 *>(base + h.methodInvokeOff) : nullptr);
-  const auto *ctorFp  = (h.ctorConstructOff ? reinterpret_cast<const NGINReflectionCtorConstructFnV1 *>(base + h.ctorConstructOff) : nullptr);
+  const auto *types = reinterpret_cast<const NGINReflectionTypeV1 *>(base + h.typesOff);
+  const auto *fields = reinterpret_cast<const NGINReflectionFieldV1 *>(base + h.fieldsOff);
+  const auto *methods = reinterpret_cast<const NGINReflectionMethodV1 *>(base + h.methodsOff);
+  const auto *ctors = reinterpret_cast<const NGINReflectionCtorV1 *>(base + h.ctorsOff);
+  const auto *attrs = reinterpret_cast<const NGINReflectionAttrV1 *>(base + h.attrsOff);
+  const auto *params = reinterpret_cast<const std::uint64_t *>(base + h.paramsOff);
+  const auto *strings = reinterpret_cast<const char *>(base + h.stringsOff);
+  const auto *methodFp = (h.methodInvokeOff ? reinterpret_cast<const NGINReflectionMethodInvokeFnV1 *>(base + h.methodInvokeOff) : nullptr);
+  const auto *ctorFp = (h.ctorConstructOff ? reinterpret_cast<const NGINReflectionCtorConstructFnV1 *>(base + h.ctorConstructOff) : nullptr);
 
-  auto validRange = [](std::uint64_t begin, std::uint64_t count, std::uint64_t limit) -> bool {
+  auto validRange = [](std::uint64_t begin, std::uint64_t count, std::uint64_t limit) -> bool
+  {
     return begin <= limit && count <= (limit - begin);
   };
 
-  auto validStringRef = [&](NGINReflectionStrRefV1 r) -> bool {
+  auto validStringRef = [&](NGINReflectionStrRefV1 r) -> bool
+  {
     if (r.size == 0)
       return true;
     const std::uint64_t size = static_cast<std::uint64_t>(r.size);
@@ -78,41 +83,56 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     return size <= (h.stringBytes - r.offset);
   };
 
-  auto validAttr = [&](const NGINReflectionAttrV1 &a) -> bool {
+  auto validAttr = [&](const NGINReflectionAttrV1 &a) -> bool
+  {
     if (!validStringRef(a.key))
       return false;
     switch (a.kind)
     {
-      case NGINReflectionAttrKindV1::Bool:
-      case NGINReflectionAttrKindV1::Int:
-      case NGINReflectionAttrKindV1::Dbl:
-      case NGINReflectionAttrKindV1::Str:
-      case NGINReflectionAttrKindV1::Type:
-        break;
-      default:
-        return false;
+    case NGINReflectionAttrKindV1::Bool:
+    case NGINReflectionAttrKindV1::Int:
+    case NGINReflectionAttrKindV1::Dbl:
+    case NGINReflectionAttrKindV1::Str:
+    case NGINReflectionAttrKindV1::Type:
+      break;
+    default:
+      return false;
     }
     if (a.kind == NGINReflectionAttrKindV1::Str && !validStringRef(a.value.sref))
       return false;
     return true;
   };
 
-  auto view = [&](NGINReflectionStrRefV1 r) -> std::string_view {
-    if (r.size == 0) return {};
+  auto view = [&](NGINReflectionStrRefV1 r) -> std::string_view
+  {
+    if (r.size == 0)
+      return {};
     return std::string_view{strings + r.offset, r.size};
   };
 
-  auto convertAttr = [&](const NGINReflectionAttrV1 &a) -> AttributeDesc {
+  auto convertAttr = [&](const NGINReflectionAttrV1 &a) -> AttributeDesc
+  {
     AttributeDesc out{};
     out.key = InternName(options.moduleId, view(a.key));
     switch (a.kind)
     {
-      case NGINReflectionAttrKindV1::Bool: out.value = static_cast<bool>(a.value.b8 != 0u); break;
-      case NGINReflectionAttrKindV1::Int:  out.value = static_cast<std::int64_t>(a.value.i64); break;
-      case NGINReflectionAttrKindV1::Dbl:  out.value = static_cast<double>(a.value.d); break;
-      case NGINReflectionAttrKindV1::Str:  out.value = InternName(options.moduleId, view(a.value.sref)); break;
-      case NGINReflectionAttrKindV1::Type: out.value = static_cast<NGIN::UInt64>(a.value.typeId); break;
-      default: break;
+    case NGINReflectionAttrKindV1::Bool:
+      out.value = static_cast<bool>(a.value.b8 != 0u);
+      break;
+    case NGINReflectionAttrKindV1::Int:
+      out.value = static_cast<std::int64_t>(a.value.i64);
+      break;
+    case NGINReflectionAttrKindV1::Dbl:
+      out.value = static_cast<double>(a.value.d);
+      break;
+    case NGINReflectionAttrKindV1::Str:
+      out.value = InternName(options.moduleId, view(a.value.sref));
+      break;
+    case NGINReflectionAttrKindV1::Type:
+      out.value = static_cast<NGIN::UInt64>(a.value.typeId);
+      break;
+    default:
+      break;
     }
     return out;
   };
@@ -121,14 +141,17 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   auto &reg = GetRegistry();
   std::uint64_t added = 0, conflicted = 0;
 
-  auto removeNameIndex = [&](NameId id, NGIN::UInt32 index) {
+  auto removeNameIndex = [&](NameId id, NGIN::UInt32 index)
+  {
     if (auto *p = reg.byName.GetPtr(id); p && *p == index)
       reg.byName.Remove(id);
   };
 
-  auto removeAliases = [&](std::string_view qn, NGIN::UInt32 index) {
+  auto removeAliases = [&](std::string_view qn, NGIN::UInt32 index)
+  {
 #if defined(_MSC_VER)
-    auto remove_alias = [&](std::string_view prefix) {
+    auto remove_alias = [&](std::string_view prefix)
+    {
       if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
       {
         auto trimmed = qn.substr(prefix.size());
@@ -145,9 +168,11 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
 #endif
   };
 
-  auto addAliases = [&](std::string_view qn, NGIN::UInt32 index) {
+  auto addAliases = [&](std::string_view qn, NGIN::UInt32 index)
+  {
 #if defined(_MSC_VER)
-    auto add_alias = [&](std::string_view prefix) {
+    auto add_alias = [&](std::string_view prefix)
+    {
       if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
       {
         auto trimmed = qn.substr(prefix.size());
@@ -201,7 +226,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
       targetIndex = static_cast<NGIN::UInt32>(reg.types.Size());
     }
 
-    TypeRuntimeDesc rec{};
+    TypeDescriptor rec{};
     rec.qualifiedNameId = InternNameId(options.moduleId, view(ti.qualifiedName));
     rec.qualifiedName = NameFromId(rec.qualifiedNameId);
     rec.typeId = typeId;
@@ -222,7 +247,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         if (!validStringRef(fi.name) ||
             !validRange(fi.attrBegin, fi.attrCount, h.attributeCount))
           return fail("corrupt field record");
-        FieldRuntimeDesc fd{};
+        FieldDescriptor fd{};
         fd.name = InternName(options.moduleId, view(fi.name));
         fd.nameId = InternNameId(options.moduleId, fd.name);
         fd.typeId = fi.typeId;
@@ -254,7 +279,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
             !validRange(mi.paramBegin, mi.paramCount, h.paramCount) ||
             !validRange(mi.attrBegin, mi.attrCount, h.attributeCount))
           return fail("corrupt method record");
-        MethodRuntimeDesc md{};
+        MethodDescriptor md{};
         md.name = InternName(options.moduleId, view(mi.name));
         const auto nameId = InternNameId(options.moduleId, md.name);
         md.nameId = nameId;
@@ -303,7 +328,7 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         if (!validRange(ci.paramBegin, ci.paramCount, h.paramCount) ||
             !validRange(ci.attrBegin, ci.attrCount, h.attributeCount))
           return fail("corrupt ctor record");
-        CtorRuntimeDesc cd{};
+        ConstructorDescriptor cd{};
         if (ci.paramCount)
         {
           cd.paramTypeIds.Reserve(ci.paramCount);
@@ -376,4 +401,3 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   MergeOptions options{};
   return MergeRegistryV1(module, options, stats, error);
 }
-

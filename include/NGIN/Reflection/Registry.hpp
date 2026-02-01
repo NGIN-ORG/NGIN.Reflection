@@ -101,7 +101,7 @@ namespace NGIN::Reflection
 
     AttrValue InternAttrValue(ModuleId moduleId, const AttrValue &value) noexcept;
 
-    struct FieldRuntimeDesc
+    struct FieldDescriptor
     {
       std::string_view name;
       NameId nameId{};
@@ -114,7 +114,7 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
-    struct PropertyRuntimeDesc
+    struct PropertyDescriptor
     {
       std::string_view name;
       NameId nameId{};
@@ -124,7 +124,7 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
-    struct MethodRuntimeDesc
+    struct MethodDescriptor
     {
       std::string_view name;
       NameId nameId{};
@@ -136,7 +136,7 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
-    struct FunctionRuntimeDesc
+    struct FunctionDescriptor
     {
       std::string_view name;
       NameId nameId{};
@@ -149,7 +149,7 @@ namespace NGIN::Reflection
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
-    struct EnumValueRuntimeDesc
+    struct EnumValueDescriptor
     {
       std::string_view name;
       NameId nameId{};
@@ -158,18 +158,18 @@ namespace NGIN::Reflection
       std::uint64_t uvalue{0};
     };
 
-    struct EnumRuntimeDesc
+    struct EnumDescriptor
     {
       bool isEnum{false};
       bool isSigned{true};
       NGIN::UInt64 underlyingTypeId{0};
-      NGIN::Containers::Vector<EnumValueRuntimeDesc> values;
+      NGIN::Containers::Vector<EnumValueDescriptor> values;
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> valueIndex;
       std::expected<std::uint64_t, Error> (*ToUnsigned)(const Any &){nullptr};
       std::expected<std::int64_t, Error> (*ToSigned)(const Any &){nullptr};
     };
 
-    struct BaseRuntimeDesc
+    struct BaseDescriptor
     {
       NGIN::UInt32 baseTypeIndex{static_cast<NGIN::UInt32>(-1)};
       NGIN::UInt64 baseTypeId{0};
@@ -179,14 +179,14 @@ namespace NGIN::Reflection
       const void *(*DowncastConst)(const void *){nullptr};
     };
 
-    struct CtorRuntimeDesc
+    struct ConstructorDescriptor
     {
       NGIN::Containers::Vector<NGIN::UInt64> paramTypeIds;
       std::expected<Any, Error> (*Construct)(const Any *, NGIN::UIntSize){nullptr};
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
     };
 
-    struct TypeRuntimeDesc
+    struct TypeDescriptor
     {
       std::string_view qualifiedName;
       NameId qualifiedNameId{};
@@ -195,25 +195,25 @@ namespace NGIN::Reflection
       NGIN::UInt32 generation{0};
       NGIN::UIntSize sizeBytes;
       NGIN::UIntSize alignBytes;
-      NGIN::Containers::Vector<FieldRuntimeDesc> fields;
+      NGIN::Containers::Vector<FieldDescriptor> fields;
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> fieldIndex;
-      NGIN::Containers::Vector<PropertyRuntimeDesc> properties;
+      NGIN::Containers::Vector<PropertyDescriptor> properties;
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> propertyIndex;
-      EnumRuntimeDesc enumInfo;
-      NGIN::Containers::Vector<BaseRuntimeDesc> bases;
+      EnumDescriptor enumInfo;
+      NGIN::Containers::Vector<BaseDescriptor> bases;
       NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::UInt32> baseIndex;
-      NGIN::Containers::Vector<MethodRuntimeDesc> methods;
-      NGIN::Containers::Vector<CtorRuntimeDesc> constructors;
+      NGIN::Containers::Vector<MethodDescriptor> methods;
+      NGIN::Containers::Vector<ConstructorDescriptor> constructors;
       NGIN::Containers::Vector<NGIN::Reflection::AttributeDesc> attributes;
       NGIN::Containers::FlatHashMap<NameId, NGIN::Containers::Vector<NGIN::UInt32>> methodOverloads;
     };
 
     struct Registry
     {
-      NGIN::Containers::Vector<TypeRuntimeDesc> types;
+      NGIN::Containers::Vector<TypeDescriptor> types;
       NGIN::Containers::FlatHashMap<NGIN::UInt64, NGIN::UInt32> byTypeId;
       NGIN::Containers::FlatHashMap<NameId, NGIN::UInt32> byName;
-      NGIN::Containers::Vector<FunctionRuntimeDesc> functions;
+      NGIN::Containers::Vector<FunctionDescriptor> functions;
       NGIN::Containers::FlatHashMap<NameId, NGIN::Containers::Vector<NGIN::UInt32>> functionOverloads;
       NGIN::Containers::Vector<ModuleStrings> modules;
       NGIN::Containers::FlatHashMap<ModuleId, NGIN::UInt32> moduleIndex;
@@ -397,7 +397,7 @@ namespace NGIN::Reflection
         return *p;
 
       // Create a new record with defaults
-      TypeRuntimeDesc rec{};
+      TypeDescriptor rec{};
       rec.qualifiedNameId = InternNameId(moduleId, NGIN::Meta::TypeName<U>::qualifiedName);
       rec.qualifiedName = NameFromId(rec.qualifiedNameId); // default name derived; user override optional
       rec.typeId = tid;
@@ -408,7 +408,7 @@ namespace NGIN::Reflection
       // Default constructor descriptor (if available)
       if constexpr (std::is_default_constructible_v<U>)
       {
-        CtorRuntimeDesc c{};
+        ConstructorDescriptor c{};
         c.Construct = [](const Any *, NGIN::UIntSize cnt) -> std::expected<Any, Error>
         {
           if (cnt != 0)
@@ -428,7 +428,8 @@ namespace NGIN::Reflection
 #if defined(_MSC_VER)
       {
         auto qn = reg.types[idx].qualifiedName;
-        auto add_alias = [&](std::string_view prefix) {
+        auto add_alias = [&](std::string_view prefix)
+        {
           if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
           {
             auto trimmed = qn.substr(prefix.size());
@@ -484,21 +485,21 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<void, Error> SetAny(void *obj, const Any &value) const;
 
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] Any GetAny(const Obj &obj) const
     {
       return GetAny(static_cast<const void *>(&obj));
     }
 
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<void, Error> SetAny(Obj &obj, const Any &value) const
     {
       return SetAny(static_cast<void *>(&obj), value);
     }
 
     template <class T, class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> Get(const Obj &obj) const
     {
       using U = std::remove_cvref_t<T>;
@@ -515,7 +516,7 @@ namespace NGIN::Reflection
     }
 
     template <class T, class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<void, Error> Set(Obj &obj, T &&value) const
     {
       using U = std::remove_cvref_t<T>;
@@ -563,21 +564,21 @@ namespace NGIN::Reflection
     [[nodiscard]] std::expected<void, Error> SetAny(void *obj, const Any &value) const;
 
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] Any GetAny(const Obj &obj) const
     {
       return GetAny(static_cast<const void *>(&obj));
     }
 
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<void, Error> SetAny(Obj &obj, const Any &value) const
     {
       return SetAny(static_cast<void *>(&obj), value);
     }
 
     template <class T, class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<std::remove_cvref_t<T>, Error> Get(const Obj &obj) const
     {
       using U = std::remove_cvref_t<T>;
@@ -598,7 +599,7 @@ namespace NGIN::Reflection
     }
 
     template <class T, class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<void, Error> Set(Obj &obj, T &&value) const
     {
       return SetAny(obj, Any{std::forward<T>(value)});
@@ -663,13 +664,13 @@ namespace NGIN::Reflection
       return Invoke(obj, args.data(), static_cast<NGIN::UIntSize>(args.size()));
     }
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<Any, Error> Invoke(Obj &obj, std::span<const Any> args) const
     {
       return Invoke(static_cast<void *>(std::addressof(obj)), args);
     }
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<Any, Error> Invoke(const Obj &obj, std::span<const Any> args) const
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
@@ -710,13 +711,13 @@ namespace NGIN::Reflection
       }
     }
     template <class R, class Obj, class... A>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<R, Error> InvokeAs(Obj &obj, A &&...a) const
     {
       return InvokeAs<R>(static_cast<void *>(std::addressof(obj)), std::forward<A>(a)...);
     }
     template <class R, class Obj, class... A>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<R, Error> InvokeAs(const Obj &obj, A &&...a) const
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
@@ -917,13 +918,13 @@ namespace NGIN::Reflection
     }
 
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<Any, Error> Invoke(Obj &obj, std::span<const Any> args) const
     {
       return Invoke(static_cast<void *>(std::addressof(obj)), args);
     }
     template <class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<Any, Error> Invoke(const Obj &obj, std::span<const Any> args) const
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
@@ -949,13 +950,13 @@ namespace NGIN::Reflection
     }
 
     template <class R, class Obj, class... A>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<R, Error> InvokeAs(Obj &obj, A &&...a) const
     {
       return InvokeAs<R>(static_cast<void *>(std::addressof(obj)), std::forward<A>(a)...);
     }
     template <class R, class Obj, class... A>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<R, Error> InvokeAs(const Obj &obj, A &&...a) const
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
@@ -1182,7 +1183,7 @@ namespace NGIN::Reflection
 
     // Resolve by compile-time signature (exact match on parameter and, if non-void, return type)
     template <class R = void, class... A>
-    requires (!detail::FunctionSignature<R>)
+      requires(!detail::FunctionSignature<R>)
     [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name) const
     {
       [[maybe_unused]] auto lock = detail::LockRegistryRead();
@@ -1237,7 +1238,7 @@ namespace NGIN::Reflection
     }
 
     template <class Sig>
-    requires detail::FunctionSignature<Sig>
+      requires detail::FunctionSignature<Sig>
     [[nodiscard]] std::expected<Method, Error> ResolveMethod(std::string_view name) const
     {
       using Traits = detail::SignatureTraits<Sig>;
@@ -1256,7 +1257,7 @@ namespace NGIN::Reflection
       return m->Invoke(obj, tmp.data(), static_cast<NGIN::UIntSize>(tmp.size()));
     }
     template <class R = void, class... A, class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<Any, Error> Invoke(std::string_view name, Obj &&obj, A &&...a) const
     {
       using ObjT = std::remove_reference_t<Obj>;
@@ -1283,7 +1284,7 @@ namespace NGIN::Reflection
       return m->template InvokeAs<R>(obj, std::forward<A>(a)...);
     }
     template <class R, class... A, class Obj>
-    requires (!std::is_pointer_v<std::remove_reference_t<Obj>>)
+      requires(!std::is_pointer_v<std::remove_reference_t<Obj>>)
     [[nodiscard]] std::expected<R, Error> InvokeAs(std::string_view name, Obj &&obj, A &&...a) const
     {
       using ObjT = std::remove_reference_t<Obj>;
@@ -1357,11 +1358,16 @@ namespace NGIN::Reflection
       const auto &t = reg.types[m_h.typeIndex];
       switch (m_h.kind)
       {
-        case MemberKind::Field: return m_h.memberIndex < t.fields.Size();
-        case MemberKind::Property: return m_h.memberIndex < t.properties.Size();
-        case MemberKind::Method: return m_h.memberIndex < t.methods.Size();
-        case MemberKind::Constructor: return m_h.memberIndex < t.constructors.Size();
-        default: break;
+      case MemberKind::Field:
+        return m_h.memberIndex < t.fields.Size();
+      case MemberKind::Property:
+        return m_h.memberIndex < t.properties.Size();
+      case MemberKind::Method:
+        return m_h.memberIndex < t.methods.Size();
+      case MemberKind::Constructor:
+        return m_h.memberIndex < t.constructors.Size();
+      default:
+        break;
       }
       return false;
     }
@@ -1419,7 +1425,7 @@ namespace NGIN::Reflection
   }
 
   template <class R, class... A>
-  requires (!detail::FunctionSignature<R>)
+    requires(!detail::FunctionSignature<R>)
   [[nodiscard]] ExpectedFunction ResolveFunction(std::string_view name);
 
   template <class Sig, std::size_t... I>
@@ -1431,7 +1437,7 @@ namespace NGIN::Reflection
 
   // Resolve by compile-time signature (exact match on parameter and, if non-void, return type)
   template <class R = void, class... A>
-  requires (!detail::FunctionSignature<R>)
+    requires(!detail::FunctionSignature<R>)
   [[nodiscard]] ExpectedFunction ResolveFunction(std::string_view name)
   {
     [[maybe_unused]] auto lock = detail::LockRegistryRead();
@@ -1488,7 +1494,7 @@ namespace NGIN::Reflection
   }
 
   template <class Sig>
-  requires detail::FunctionSignature<Sig>
+    requires detail::FunctionSignature<Sig>
   [[nodiscard]] ExpectedFunction ResolveFunction(std::string_view name)
   {
     using Traits = detail::SignatureTraits<Sig>;
@@ -1536,4 +1542,3 @@ namespace NGIN::Reflection
   }
 
 } // namespace NGIN::Reflection
-
