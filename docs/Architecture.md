@@ -1,158 +1,193 @@
-# NGIN.Reflection - Architecture & Implementation Notes
+# NGIN.Reflection — Architecture & Implementation Notes
 
-This document describes the core architecture, data model, and design
-constraints for NGIN.Reflection. The README is the quick tour; this file keeps
-the deeper details and long-term plan.
+This document describes the internal architecture, data model, and design
+constraints of NGIN.Reflection. The README is the user-facing tour; this file
+covers the mechanics and long-term direction.
+
+---
 
 ## Design goals
 
-- No required macros in public headers or user code.
-- C++23-first, with compile-time descriptors where they improve clarity or speed.
-- Small, trivially copyable handles with cache-friendly lookup tables.
-- Deterministic behavior and minimal global state.
-- Minimal dynamic allocation in hot paths.
-- Clear ABI strategy for cross-DLL metadata import/export.
+- No required macros in public headers or user code
+- C++23‑first design
+- Small, trivially copyable handles
+- Deterministic behavior with minimal global state
+- Minimal dynamic allocation in hot paths
+- Explicit and debuggable ABI strategy
+
+---
 
 ## Dependencies
 
-- NGIN.Base: `Meta::TypeName`, `Utilities::Any`, `Containers::Vector`,
-  `Containers::FlatHashMap`, `Hashing::FNV1a64`, and `Memory::SystemAllocator`.
-- STL: `string_view`, `expected`, `span`, `variant`, `optional`, `tuple`,
-  `map`, and `unordered_map` (used mainly in adapters and diagnostics).
+- **NGIN.Base**
+  - `Meta::TypeName`
+  - `Utilities::Any`
+  - `Containers::Vector`
+  - `Containers::FlatHashMap`
+  - `Hashing::FNV1a64`
+  - `Memory::SystemAllocator`
+- **STL**
+  - `string_view`, `expected`, `span`, `variant`, `optional`, `tuple`
+  - `map`, `unordered_map` (primarily adapters and diagnostics)
 
-## High-level model
+---
 
-NGIN.Reflection is a process-local registry of runtime descriptors. Registration
-is opt-in and occurs on demand through a single customization point:
+## High‑level model
 
-- **ADL friend** (preferred): `friend void NginReflect(Tag<T>, TypeBuilder<T>&)`
-- **Describe<T>** fallback for types you cannot modify
+NGIN.Reflection is a **process‑local registry** of runtime descriptors.
+Registration is explicit and opt‑in via one of two customization points:
 
-The TypeBuilder writes descriptors into the registry: fields, properties,
-methods, constructors, enums, bases, and attributes. Consumers query by name or
-type id and use small handle wrappers (`Type`, `Field`, `Method`, etc.) to access
-metadata or invoke functions.
+- ADL friend:
+  `friend void NginReflect(Tag<T>, TypeBuilder<T>&)`
+- Trait fallback:
+  `Describe<T>::Do(TypeBuilder<T>&)`
+
+`TypeBuilder<T>` writes immutable descriptor tables into the registry.
+Consumers query metadata by name or type id and interact via lightweight handles
+(`Type`, `Field`, `Method`, etc.).
+
+---
 
 ## Registration flow
 
-1) `GetType<T>()` calls `EnsureRegistered<T>()` (once per type), which invokes
-   either `NginReflect(Tag<T>{}, builder)` or `Describe<T>::Do(builder)`.
-2) `TypeBuilder<T>` records metadata into the registry (name, members,
-   attributes, etc.).
-3) Handles reference immutable table entries by index + generation.
+1. `GetType<T>()` calls `EnsureRegistered<T>()` once per type.
+2. `NginReflect` or `Describe<T>::Do` is invoked.
+3. `TypeBuilder<T>` records metadata into registry tables.
+4. Handles reference descriptors by index (+ generation when required).
 
-`TryGetType<T>()` and `FindType(name)` do not register; they only query existing
-entries.
+`TryGetType<T>()` and `FindType(name)` only query existing entries.
+
+---
 
 ## Type identity
 
-Type identity is a 64-bit FNV-1a hash of
-`NGIN::Meta::TypeName<T>::qualifiedName`:
+Type identity is a 64‑bit FNV‑1a hash of
+`NGIN::Meta::TypeName<T>::qualifiedName`.
 
-- `TypeIdOf<T>()` lives in `include/NGIN/Reflection/Registry.hpp`.
-- This is stable across translation units and consistent with the NGIN.Base
-  naming strategy.
+Properties:
 
-Future work: optional 128-bit ids (see `Plan.MD`).
+- Stable across translation units
+- Consistent with NGIN.Base naming
+- Not guaranteed stable across different compilers or ABI modes
 
-## Registry and threading
+Future work includes optional 128‑bit identifiers.
+
+---
+
+## Registry & threading
 
 The registry uses a shared mutex:
 
-- Read operations take a shared lock.
-- Registration takes an exclusive lock.
-- The lock is re-entrant per thread, but write acquisition while holding a read
-  lock terminates. Avoid calling `GetType<T>()` while holding a read lock.
+- Reads acquire a shared lock
+- Registration acquires an exclusive lock
 
-In practice: allow concurrent reads, but keep registration serialized during
-startup (registration executes user code).
+⚠️ Acquiring a write lock while holding a read lock results in `std::terminate`.
+Do not call `GetType<T>()` from inside reflection read callbacks.
 
-## Handles and descriptors
+In practice:
 
-Handles are small structs containing indices (and a generation when needed) and
-are validated against the current registry state. Key descriptor tables:
+- Allow concurrent reads freely
+- Serialize registration during startup
 
-- `TypeRuntimeDesc`: name, typeId, size/align, members, attributes, overload
-  maps.
-- `FieldRuntimeDesc`: name, typeId, get/set thunks, attributes.
-- `PropertyRuntimeDesc`: name, typeId, getter/setter thunks, attributes.
-- `MethodRuntimeDesc`: name, return typeId, param typeIds, invoker, attributes.
-- `FunctionRuntimeDesc`: same as method but for free/static functions.
-- `CtorRuntimeDesc`: param typeIds, constructor invoker, attributes.
-- `EnumRuntimeDesc`: underlying type id and name/value table.
-- `BaseRuntimeDesc`: base type ids with optional upcast/downcast hooks.
+---
 
-## Overload resolution and invocation
+## Handles & descriptor tables
 
-- Methods and functions are resolved by name + argument types.
-- Resolution scoring favors exact matches, then promotions, then conversions;
-  narrowing and signedness changes are penalized.
-- Ties resolve by registration order.
-- `ResolveMethod` / `ResolveFunction` return a cached plan (`ResolvedMethod`,
-  `ResolvedFunction`) that can be invoked repeatedly.
+Handles are small value types validated against registry generations.
 
-Typed helpers:
+Key tables:
 
-- `ResolveMethod<R, A...>()` / `ResolveMethod<R(Args...)>()`
-- `Method::InvokeAs<R>(obj, args...)`
-- `Type::InvokeAs<R, A...>(name, obj, args...)`
-- `Function::InvokeAs<R>(args...)`
+- `TypeRuntimeDesc`
+- `FieldRuntimeDesc`
+- `PropertyRuntimeDesc`
+- `MethodRuntimeDesc`
+- `FunctionRuntimeDesc`
+- `CtorRuntimeDesc`
+- `EnumRuntimeDesc`
+- `BaseRuntimeDesc`
+
+All tables are append‑only after registration.
+
+---
+
+## Overload resolution
+
+Resolution considers:
+
+1. Exact matches
+2. Promotions
+3. Conversions
+
+Narrowing and signedness changes are penalized.
+Ties resolve by registration order.
+
+Resolution produces a cached plan (`ResolvedMethod` / `ResolvedFunction`) that
+can be reused across invocations.
+
+---
 
 ## Any
 
-`NGIN::Reflection::Any` is an alias of `NGIN::Utilities::Any<>` (NGIN.Base). It
-provides:
+`NGIN::Reflection::Any` aliases `NGIN::Utilities::Any<>` and provides:
 
-- 32-byte small-buffer optimization (default)
-- Value boxing/unboxing with `Cast<T>()`
-- Type id and size inspection
+- 32‑byte small‑buffer optimization
+- Type‑safe boxing/unboxing
+- Runtime type inspection
+
+---
 
 ## Adapters
 
-Adapters offer read-only access to common container shapes via `Any`:
+Adapters provide read‑only access to common container shapes via `Any`:
 
-- Sequence: `std::vector`, `NGIN::Containers::Vector`
-- Tuple-like: `std::tuple`, `std::pair`
-- Variant-like: `std::variant`
-- Optional-like: `std::optional` and types with `HasValue/Value`
-- Map-like: `std::map`, `std::unordered_map`, `NGIN::Containers::FlatHashMap`
+- Sequence
+- Tuple‑like
+- Variant‑like
+- Optional‑like
+- Map‑like
 
-See `include/NGIN/Reflection/Adapters.hpp` for the exact APIs.
+Adapters never mutate containers and never allocate.
 
-## ABI export/merge (V1)
+---
 
-The optional C ABI allows a plugin to export its registry metadata for a host to
-merge:
+## ABI export / merge (V1)
 
-- Entrypoint: `NGINReflectionExportV1` in `include/NGIN/Reflection/ABI.hpp`.
-- The blob is pointer-free; strings are stored in a single UTF-8 table.
-- Methods/ctors can be invoked across DLLs only if invoke tables are emitted.
+The optional C ABI allows a module to export its registry metadata:
 
-Current limitations:
+- Entrypoint: `NGINReflectionExportV1`
+- Pointer‑free blob with interned UTF‑8 strings
+- Import merges metadata by TypeId
 
-- Field accessors are metadata-only across DLLs (no cross-module get/set).
-- The exporter allocates the blob via `NGIN::Memory::SystemAllocator` with no
-  free API yet.
-- Merge conflicts are tracked but not resolved beyond skipping existing TypeIds.
+Limitations:
+
+- Field accessors are metadata‑only across modules
+- No allocator‑neutral free API yet
+- Conflicting TypeIds are skipped, not resolved
+
+Hosts should treat exported blobs as **module‑owned** and copy immediately.
+
+---
 
 ## Error model
 
-The public surface uses `std::expected<T, Error>` and does not throw on library
-errors. The `Error` type carries:
+Public APIs return `std::expected<T, Error>`.
 
-- `ErrorCode` and message
-- Overload diagnostics for resolution failures
-- Optional closest-match index
+`Error` contains:
 
-Exceptions can still propagate from user code or allocators (e.g., during module
-initialization).
+- Error code
+- Human‑readable message
+- Overload diagnostics
+- Optional closest‑match index
+
+The library itself does not throw.
+
+---
 
 ## Roadmap
 
-See `Plan.MD` for the hot-reload refactor plan and future ABI evolution. Major
-milestones:
+See `Plan.MD` for planned work, including:
 
-- ABI V2 with module ownership and safe hot-reload
-- Function-pointer indirection table
-- ABI compatibility checks and conflict resolution
-- Expanded docs and examples
+- ABI V2 with ownership and hot‑reload safety
+- Invocation indirection tables
+- ABI compatibility validation
+- Expanded documentation and examples

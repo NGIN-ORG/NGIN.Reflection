@@ -1,18 +1,38 @@
 # NGIN.Reflection
 
-Runtime reflection for modern **C++23**: **no required macros**, **no RTTI in the core**, and a compact registry designed for fast lookups.
+Runtime reflection for modern **C++23** with an explicit, opt‑in model:
+**no required macros**, **no RTTI in the core**, and a compact registry designed for fast lookups.
 
-You describe types once (via an **ADL friend** or **traits specialization**) and then query **fields, properties, methods, constructors, enums, and attributes** at runtime—without building a base ViewModel hierarchy of your own 😄
+Types are described once (via an **ADL friend** or **traits specialization**) and then queried at runtime for
+**fields, properties, methods, constructors, enums, and attributes** — without intrusive base classes or macros.
+
+> Reflection is **opt‑in**: only types you explicitly describe are registered. There is no header scanning or
+> automatic discovery.
 
 ---
 
 ## At a glance
 
-- **Header-first, template-friendly** API with minimal compiled core.
-- **Process-local registry** with interned names and small, cheap handles.
-- **Overload resolution** with promotions/conversions + typed invoke helpers.
-- **Any-based boxing** with **32-byte SBO** (from `NGIN.Base`).
-- Optional **cross-DLL ABI export/merge** (metadata always; invoke when tables are present).
+- Header‑first, template‑friendly API with a minimal compiled core
+- Process‑local registry with interned names and cheap, cache‑friendly handles
+- Overload resolution with promotions and conversions + typed invoke helpers
+- Any‑based boxing with **32‑byte SBO** (from `NGIN.Base`)
+- Optional **cross‑DLL metadata import/export** (invocation when tables are present)
+
+---
+
+## What this library is (and isn’t)
+
+**NGIN.Reflection is:**
+
+- A runtime metadata and invocation layer for C++
+- Suitable as a foundation for tooling, editors, scripting, diagnostics, or glue code
+
+**NGIN.Reflection is not:**
+
+- A serializer or ORM (though it can power one)
+- A full dynamic language runtime
+- An automatic reflection system — descriptions are authored by you
 
 ---
 
@@ -22,11 +42,6 @@ You describe types once (via an **ADL friend** or **traits specialization**) and
 - [Installation](#installation)
 - [Registering types](#registering-types)
 - [Working with metadata](#working-with-metadata)
-  - [Fields & properties](#fields--properties)
-  - [Methods](#methods)
-  - [Constructors](#constructors)
-  - [Free/static functions](#freestatic-functions)
-  - [Enums & attributes](#enums--attributes)
 - [Adapters](#adapters)
 - [Error model](#error-model)
 - [Threading & registration](#threading--registration)
@@ -39,7 +54,8 @@ You describe types once (via an **ADL friend** or **traits specialization**) and
 
 ## Quick start
 
-Define a type description using an **ADL friend** (preferred: can access private members) and then query it at runtime.
+Define a type description using an **ADL friend** (preferred: can access private members),
+then query it at runtime.
 
 ```cpp
 #include <NGIN/Reflection/Reflection.hpp>
@@ -54,7 +70,7 @@ struct User
   void SetScore(int v) { score = v; }
 
   friend void NginReflect(NGIN::Reflection::Tag<User>,
-                          NGIN::Reflection::TypeBuilder<User> &b)
+                          NGIN::Reflection::TypeBuilder<User>& b)
   {
     b.SetName("Demo::User");
     b.Field<&User::id>("id");
@@ -71,12 +87,11 @@ int main()
   auto t = GetType<User>();
   User u{};
 
-  t.GetField("id")->Set(u, 42).value();
-
-  t.GetProperty("Score")->Set(u, 7).value();
+  auto id = t.GetField("id").value();
+  id.Set(u, 42).value();
 
   auto add = t.ResolveMethod<int, int, int>("Add").value();
-  auto sum = add.InvokeAs<int>(&u, 3, 4).value();
+  int sum = add.InvokeAs<int>(&u, 3, 4).value();
 
   (void)sum;
 }
@@ -89,7 +104,7 @@ int main()
 ### Requirements
 
 - A **C++23** compiler
-- `NGIN.Base` (found via package or sibling source)
+- `NGIN.Base` (found via package or sibling source tree)
 
 ### Build & test
 
@@ -99,12 +114,10 @@ cmake -S . -B build \
   -DNGIN_REFLECTION_BUILD_EXAMPLES=ON \
   -DNGIN_REFLECTION_BUILD_BENCHMARKS=OFF \
   -DNGIN_REFLECTION_ENABLE_ABI=ON
+
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
-
-> Tip: If you support package managers (vcpkg/Conan), add a small snippet here later.
-> Until then, keeping this section honest is better than “maybe works” install docs.
 
 ---
 
@@ -120,14 +133,14 @@ struct Secret
   int value{};
 
   friend void NginReflect(NGIN::Reflection::Tag<Secret>,
-                          NGIN::Reflection::TypeBuilder<Secret> &b)
+                          NGIN::Reflection::TypeBuilder<Secret>& b)
   {
     b.Field<&Secret::value>("value");
   }
 };
 ```
 
-### 2) Trait fallback (for external types)
+### 2) Trait fallback (external types)
 
 ```cpp
 namespace NGIN::Reflection
@@ -135,7 +148,7 @@ namespace NGIN::Reflection
   template <>
   struct Describe<std::pair<int, int>>
   {
-    static void Do(TypeBuilder<std::pair<int, int>> &b)
+    static void Do(TypeBuilder<std::pair<int, int>>& b)
     {
       b.SetName("std::pair<int,int>");
       b.Field<&std::pair<int, int>::first>("first");
@@ -147,27 +160,28 @@ namespace NGIN::Reflection
 
 ### Notes
 
-- `GetType<T>()` registers (if needed).
-  `TryGetType<T>()` and `FindType(name)` do **not** register.
-- Overload disambiguation: explicitly cast overloaded member pointers to their exact signature.
+- `GetType<T>()` registers (if needed)
+- `TryGetType<T>()` and `FindType(name)` never register
+- Overloaded members must be disambiguated with an explicit cast
 
 ---
 
 ## Working with metadata
 
-### Fields & properties
+### Fields vs properties
+
+- **Field**: direct data member get/set
+- **Property**: getter/setter pair, no storage required
 
 ```cpp
-auto t = NGIN::Reflection::GetType<User>();
+auto t = GetType<User>();
 User u{};
 
 auto id = t.GetField("id").value();
 id.Set(u, 123).value();
-int v = id.Get<int>(u).value();
 
 auto score = t.GetProperty("Score").value();
 score.Set(u, 10).value();
-int s = score.Get<int>(u).value();
 ```
 
 ### Methods
@@ -184,24 +198,18 @@ struct Widget
 {
   Widget(int x, float y) {}
   friend void NginReflect(NGIN::Reflection::Tag<Widget>,
-                          NGIN::Reflection::TypeBuilder<Widget> &b)
+                          NGIN::Reflection::TypeBuilder<Widget>& b)
   {
     b.Constructor<int, float>();
   }
 };
 
 auto tw = NGIN::Reflection::GetType<Widget>();
-
-NGIN::Reflection::Any args[2] = {
-  NGIN::Reflection::Any{1},
-  NGIN::Reflection::Any{2.0f},
-};
-
-auto anyWidget = tw.Construct(args, 2).value();
+auto anyWidget = tw.Construct({1, 2.0f}).value();
 Widget w = anyWidget.Cast<Widget>();
 ```
 
-### Free/static functions
+### Free / static functions
 
 ```cpp
 int Add(int a, int b) { return a + b; }
@@ -221,7 +229,7 @@ struct Config
 {
   Mode mode{Mode::Safe};
   friend void NginReflect(NGIN::Reflection::Tag<Config>,
-                          NGIN::Reflection::TypeBuilder<Config> &b)
+                          NGIN::Reflection::TypeBuilder<Config>& b)
   {
     b.EnumValue("Fast", Mode::Fast);
     b.EnumValue("Safe", Mode::Safe);
@@ -231,70 +239,47 @@ struct Config
 };
 ```
 
-Attribute values are:
-
-- `bool`
-- `int64_t`
-- `double`
-- `std::string_view`
-- `NGIN::UInt64`
-
-(stored as `std::variant<...>`)
-
 ---
 
 ## Adapters
 
-Adapters provide read-only access to common container shapes through `Any`:
+Adapters provide read‑only access to common container shapes through `Any`
+(sequence, tuple‑like, variant‑like, optional‑like, and map‑like containers).
 
-- Sequence: `std::vector`, `NGIN::Containers::Vector`
-- Tuple-like: `std::tuple`, `std::pair`, and other tuple-like types
-- Variant-like: `std::variant`
-- Optional-like: `std::optional` and types with `HasValue/Value`
-- Map-like: `std::map`, `std::unordered_map`, `NGIN::Containers::FlatHashMap`
-
-See: `include/NGIN/Reflection/Adapters.hpp` for exact adapter APIs.
+See `include/NGIN/Reflection/Adapters.hpp` for details.
 
 ---
 
 ## Error model
 
-Most APIs return `std::expected<T, Error>` with structured overload diagnostics on resolution failures.
+Most APIs return `std::expected<T, Error>`:
 
-- Errors do **not** throw.
-- Exceptions only propagate from user code or allocators.
-
-```cpp
-auto method = t.ResolveMethod("Add", args, 2);
-if (!method)
-{
-  const auto &err = method.error();
-  // err.code, err.message, err.diagnostics
-}
-```
+- No exceptions for library errors
+- Structured diagnostics for overload resolution failures
+- Exceptions only propagate from user code or allocators
 
 ---
 
 ## Threading & registration
 
-- Reads are guarded by a **shared lock**
-- Registration uses an **exclusive lock**
+- Reads use a shared lock
+- Registration uses an exclusive lock
 
-The registry is safe for concurrent reads, but **avoid concurrent registration** during startup
-(registration executes user code and is intentionally serialized).
+Concurrent reads are safe.
+Avoid concurrent registration during startup — registration executes user code.
 
 ---
 
 ## Cross-DLL ABI (optional)
 
-Enable with: `-DNGIN_REFLECTION_ENABLE_ABI=ON` (default ON)
+Enable with: `-DNGIN_REFLECTION_ENABLE_ABI=ON`
 
-- Exported symbol: `NGINReflectionExportV1` in `include/NGIN/Reflection/ABI.hpp`
-- Exported blob is pointer-free and self-contained; strings are stored in a table
-- Methods/ctors are invocable across DLLs **only** when invoke tables are present
-- Current limitation: field accessors are **metadata-only** across DLLs
-- Exporter allocates with `NGIN::Memory::SystemAllocator` and does not yet expose a free API
-  (treat as module-owned or copy)
+- Metadata import/export via a stable C ABI
+- Pointer‑free blob with interned string table
+- Cross‑DLL invocation only when invoke tables are emitted
+- Field accessors are metadata‑only across DLLs
+
+**Note:** Exported blobs are module‑owned. Hosts should copy the blob immediately.
 
 ---
 
@@ -303,15 +288,14 @@ Enable with: `-DNGIN_REFLECTION_ENABLE_ABI=ON` (default ON)
 - `NGIN_REFLECTION_BUILD_TESTS` (default ON)
 - `NGIN_REFLECTION_BUILD_EXAMPLES` (default OFF)
 - `NGIN_REFLECTION_BUILD_BENCHMARKS` (default OFF)
-- `NGIN_REFLECTION_ENABLE_ABI` (default ON)
+- `NGIN_REFLECTION_ENABLE_ABI` (default ON, advanced)
 
 ---
 
 ## Docs & examples
 
-- Architecture and implementation notes: `docs/Architecture.md`
+- Architecture & implementation notes: `docs/Architecture.md`
 - Examples:
-
   - `examples/QuickStart`
   - `examples/Methods`
   - `examples/Adapters`
@@ -320,5 +304,8 @@ Enable with: `-DNGIN_REFLECTION_ENABLE_ABI=ON` (default ON)
 
 ## Status
 
-Phase 1–2 features are implemented (fields, methods, constructors, adapters, Any, error model).
-Cross-DLL export/merge exists but has limitations; see the ABI section and `docs/Architecture.md`.
+Core reflection (fields, properties, methods, constructors, adapters, Any,
+error model) is implemented and stable.
+
+Cross‑DLL ABI export/merge exists but is **advanced/experimental** and has
+documented limitations. See `docs/Architecture.md` for details.
