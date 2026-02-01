@@ -1,275 +1,257 @@
 # NGIN.Reflection
 
-Portable, high-performance runtime reflection for modern C++ (C++23). Inspect and manipulate types, fields, methods, and attributes at runtime with zero macros. Cross-DLL support is available via a gated C ABI export/merge with current limitations (see ABI section).
+Runtime reflection for modern C++23: zero required macros, no RTTI in the core, and a
+compact registry designed for fast lookups. You describe types once (via an ADL
+friend or a traits specialization) and then query fields, properties, methods,
+constructors, enums, and attributes at runtime.
 
-## Why NGIN.Reflection
+## At a glance
 
-- Pure C++23 API, no required macros or RTTI in the core.
-- Process-local registry with small handles and cache-friendly lookups.
-- Composable adapters for common containers and tuple/variant/optional/map types.
-- Cross-DLL export/merge via ABI, with optional invocation tables.
+- Header-first, template-friendly API with minimal compiled core.
+- Process-local registry with interned names and small, cheap handles.
+- Overload resolution with promotions/conversions + typed invoke helpers.
+- Any-based boxing with 32-byte SBO (from NGIN.Base).
+- Optional cross-DLL ABI export/merge (metadata always; method/ctor invoke when
+  tables are present).
+
+## Quick start
 
 ```cpp
 #include <NGIN/Reflection/Reflection.hpp>
 
-struct User {
+struct User
+{
   int id{};
-  float score{};
+  int score{};
 
-  friend void NginReflect(NGIN::Reflection::Tag<User>, NGIN::Reflection::TypeBuilder<User> &b) {
+  int Add(int a, int b) const { return a + b; }
+  int Score() const { return score; }
+  void SetScore(int v) { score = v; }
+
+  friend void NginReflect(NGIN::Reflection::Tag<User>,
+                          NGIN::Reflection::TypeBuilder<User> &b)
+  {
     b.SetName("Demo::User");
     b.Field<&User::id>("id");
     b.Field<&User::score>("score");
+    b.Property<&User::Score, &User::SetScore>("Score");
+    b.Method<&User::Add>("Add");
   }
 };
 
-// Query and use
-auto t = NGIN::Reflection::GetType<User>();
-auto f = t.GetField("id").value();
-User u{};
-(void)f.SetAny(&u, NGIN::Reflection::Any{42});
-auto v = f.GetAny(&u).Cast<int>(); // 42
+int main()
+{
+  using namespace NGIN::Reflection;
+
+  auto t = GetType<User>();
+  User u{};
+
+  auto idField = t.GetField("id").value();
+  idField.Set(u, 42).value();
+
+  auto scoreProp = t.GetProperty("Score").value();
+  scoreProp.Set(u, 7).value();
+
+  auto add = t.ResolveMethod<int, int, int>("Add").value();
+  auto sum = add.InvokeAs<int>(&u, 3, 4).value();
+
+  (void)sum;
+}
 ```
 
-### Methods (overloads, conversions, and typed invocations)
+## Registering types
+
+There are two supported customization points:
+
+1) **ADL friend** (preferred, grants private access)
 
 ```cpp
-struct Math {
-  int    mul(int,int) const { /*...*/ }
-  double mul(int,double) const { /*...*/ }
-  float  mul(float,float) const { /*...*/ }
-  friend void NginReflect(NGIN::Reflection::Tag<Math>, NGIN::Reflection::TypeBuilder<Math> &b) {
-    b.Method<static_cast<int    (Math::*)(int,int)    const>(&Math::mul)>("mul");
-    b.Method<static_cast<double (Math::*)(int,double) const>(&Math::mul)>("mul");
-    b.Method<static_cast<float  (Math::*)(float,float)const>(&Math::mul)>("mul");
+struct Secret
+{
+  int value{};
+
+  friend void NginReflect(NGIN::Reflection::Tag<Secret>,
+                          NGIN::Reflection::TypeBuilder<Secret> &b)
+  {
+    b.Field<&Secret::value>("value");
   }
 };
-
-using namespace NGIN::Reflection;
-auto tm = GetType<Math>(); Math m{};
-
-// Resolve by runtime args (promotions/conversions applied)
-Any args[2] = { Any{3}, Any{2.5} };
-auto mr = tm.ResolveMethod("mul", args, 2).value(); // ResolvedMethod
-auto out = mr.Invoke(&m, args, 2).value().Cast<double>();
-
-// Resolve by compile-time signature (exact match)
-auto mi = tm.ResolveMethod<int,int,int>("mul").value();
-auto sum = mi.InvokeAs<int>(&m, 3, 4).value(); // builds Any[] internally
-
-// Or: resolve + call in one step
-auto sum2 = tm.InvokeAs<int,int,int>("mul", &m, 5, 6).value();
 ```
 
-## Features
+2) **Trait fallback** for external types
 
-- Types: lookup by qualified name or TypeId; size/alignment; `GetType<T>()` registers, `TryGetType<T>()` and `FindType(name)` do not.
-- Fields: enumerate/find (`GetField`, `FindField`); GetMut/GetConst; typed `Get<T>(obj)`/`Set(obj, value)`; `GetAny`/`SetAny`; field attributes.
-- Properties: getter/setter registration with `Property<Getter, Setter>()`; read-only when no setter is available.
-- Methods: enumerate/find (`GetMethod`, `FindMethods`); overload resolution with promotions/conversions; method attributes.
-- Functions: register free/static functions via `RegisterFunction` or `TypeBuilder::StaticMethod`; resolve/invoke with the same overload rules.
-- Enums: register name/value pairs with `EnumValue`, parse from string, stringify from value, and query underlying type id.
-- Bases: register base types with `Base<BaseT>()`, query base list, and use Upcast/Downcast hooks when provided.
-- Typed APIs: `ResolveMethod<R, A...>()` or `ResolveMethod<R(Args...)>()`, `Method::InvokeAs<R>(obj, args...)`, `Type::InvokeAs<R, A...>(name, obj, args...)`.
-- Constructors: default construction and registered parameterized constructors via `TypeBuilder::Constructor<Args...>()` + `Type::Construct(...)` and `DefaultConstruct()`.
-- Attributes: on type/field/method with `std::variant<bool, int64_t, double, string_view, UInt64>`.
-- Any: 32B SBO, heap fallback, copy/move, `Cast<T>()`, `GetTypeId()`, `Size()`, `Data()`.
-- Adapters: sequence (std::vector, `NGIN::Containers::Vector`), tuple, variant, optional‑like, std::map/unordered_map, and `NGIN::Containers::FlatHashMap`.
-- Error model: `std::expected<T, Error>` throughout; overload diagnostics and closest-match index on resolution failures.
-- Module init helper for explicit registration in plugins (`ModuleInit.hpp`).
-- ABI export/merge (methods/ctors can be invoked when invoke tables are present; fields are metadata-only across DLLs).
-
-## Customization Points
-
-- ADL friend (primary): define an inline friend in the class to grant private access.
-
-  ```cpp
-  struct Foo {
-    int x{};
-    friend void NginReflect(NGIN::Reflection::Tag<Foo>, NGIN::Reflection::TypeBuilder<Foo> &b) {
-      b.Field<&Foo::x>("x");
-    }
-  };
-  ```
-
-- Trait fallback (for external/3rd‑party types): specialize `NGIN::Reflection::Describe<T>` when you can’t modify the type. Only public members are accessible.
-
-  ```cpp
-  namespace NGIN::Reflection {
-  template<> struct Describe<std::pair<int,int>> {
-    static void Do(TypeBuilder<std::pair<int,int>>& b) {
+```cpp
+namespace NGIN::Reflection
+{
+  template <>
+  struct Describe<std::pair<int, int>>
+  {
+    static void Do(TypeBuilder<std::pair<int, int>> &b)
+    {
       b.SetName("std::pair<int,int>");
-      b.Field<&std::pair<int,int>::first>("first");
-      b.Field<&std::pair<int,int>::second>("second");
+      b.Field<&std::pair<int, int>::first>("first");
+      b.Field<&std::pair<int, int>::second>("second");
     }
   };
-  } // namespace NGIN::Reflection
-  ```
-
-**Overloads & Access**
-
-- Overload disambiguation: explicitly cast overloaded member pointers to the exact signature when registering.
-
-  ```cpp
-  b.Method<static_cast<int (Math::*)(int,int) const>(&Math::mul)>("mul");
-  b.Method<static_cast<double (Math::*)(int,double) const>(&Math::mul)>("mul");
-  b.Method<static_cast<float (Math::*)(float,float) const>(&Math::mul)>("mul");
-  ```
-
-- Const vs non-const: register each variant explicitly; cv-qualification is part of the type.
-- Access rules: inline friend grants private/protected access; free `NginReflect` and `Describe<T>` only see public members.
+}
+```
 
 Notes:
 
-- Cv/ref normalization: `T`, `const T&`, and `T&&` map to one canonical type record.
-- Name interning: names passed to `SetName()` and TypeBuilder APIs are interned; passing temporaries or literals is safe.
+- `GetType<T>()` registers (if needed). `TryGetType<T>()` and `FindType(name)`
+  do not.
+- Overload disambiguation: explicitly cast overloaded member pointers to their
+  exact signatures.
 
-## Non‑Goals
+## Working with metadata
 
-- No macros in public API or required user code.
-- No exceptions in the library core (use `std::expected`).
-- No reliance on RTTI for identity across modules.
+### Fields & properties
 
-## Status & Roadmap
+```cpp
+auto t = NGIN::Reflection::GetType<User>();
+User u{};
 
-| Phase | Status | Highlights |
-|---|---|---|
-| 1 — MVP | ✅ done | Fields, methods, Any, basic adapters, examples |
-| 2 — Methods | ✅ done | Overload scoring, span invoke, typed resolve/invoke, constructors, adapters |
-| 3 — DLL | 🚧 partial | ABI export/merge + interop tests; field accessors not exported yet |
-| 4 — Attributes/Codegen | 🚧 partial | Attributes storage done; scanner prototype planned |
-| 5 — Perf/Memory | 🚧 planned | Interning/layout tuning, allocator use |
-| 6 — Docs/Samples | 🚧 planned | Guides and additional samples |
+auto id = t.GetField("id").value();
+id.Set(u, 123).value();
+int v = id.Get<int>(u).value();
 
-See docs/Architecture.md for full details.
+auto score = t.GetProperty("Score").value();
+score.Set(u, 10).value();
+int s = score.Get<int>(u).value();
+```
 
-## Data Structures (NGIN‑first)
+### Methods
 
-- `Vector<T>`: `NGIN::Containers::Vector` for tables and temporary builders.
-- `StringInterner`: registry-local instance of `NGIN::Utilities::StringInterner<>` (from NGIN.Base) storing unique `std::string_view` handles.
-- `HashIndex`: `FlatHashMap` from interned name id → index for O(1) average lookup.
-- `Any`: alias of `NGIN::Utilities::Any<>` (from NGIN.Base); 32B SBO + allocator-configurable, with `Cast`, `GetTypeId`, and `Data` used throughout the registry.
+```cpp
+auto add = t.ResolveMethod<int, int, int>("Add").value();
+int sum = add.InvokeAs<int>(&u, 1, 2).value();
+```
 
-## TypeBuilder DSL and ABI Blob
+### Constructors
 
-1) `GetType<T>()` (or `AutoRegister<T>()`) ensures T is registered, invoking ADL `NginReflect(Tag<T>, TypeBuilder<T>&)` or `Describe<T>::Do`; `TryGetType<T>()`/`FindType(name)` do not register.
-2) `TypeBuilder<T>` writes runtime descriptors into the process-local registry (types, fields, methods, ctors, attributes).
-3) ABI export packs the registry into a contiguous blob with a string table and optional invoke tables.
-4) `MergeRegistryV1` validates and appends types by TypeId, reporting conflicts.
+```cpp
+struct Widget
+{
+  Widget(int x, float y) {}
+  friend void NginReflect(NGIN::Reflection::Tag<Widget>,
+                          NGIN::Reflection::TypeBuilder<Widget> &b)
+  {
+    b.Constructor<int, float>();
+  }
+};
 
-## Container & Range Adapters
+auto tw = NGIN::Reflection::GetType<Widget>();
+NGIN::Reflection::Any args[2] = {NGIN::Reflection::Any{1},
+                                 NGIN::Reflection::Any{2.0f}};
+auto anyWidget = tw.Construct(args, 2).value();
+Widget w = anyWidget.Cast<Widget>();
+```
 
-- Adapters cover sequence (std::vector, `NGIN::Containers::Vector`), tuple-like, variant-like, optional-like, and map-like containers.
-- Each adapter exposes size and value access as `Any`, using lightweight trait checks in `NGIN::Reflection::Adapters`.
+### Free/static functions
 
-## Planned NGIN.Base Extensions
+```cpp
+int Add(int a, int b) { return a + b; }
 
-- Hashing 128: add `NGIN::Hashing::XXH128` (or a header‑only 128‑bit FNV‑1a variant) and a `Meta::TypeId128<T>` wrapper.
-- StringView utilities: small helpers to normalize compiler pretty‑function output (if broadly useful, otherwise keep local).
-- Optional: a lightweight `Expected<T,E>` if we decide to eliminate `std::expected` for portability; for now, C++23 is required.
+NGIN::Reflection::RegisterFunction<&Add>("Add");
+auto fn = NGIN::Reflection::ResolveFunction<int, int, int>("Add").value();
+int r = fn.InvokeAs<int>(2, 3).value();
+```
 
-We will keep these extensions minimal and propose them via PRs to NGIN.Base as we cross each phase gate.
+### Enums & attributes
 
-## Implementation Phases
+```cpp
+enum class Mode { Fast = 1, Safe = 2 };
 
-Phase 0 — Bootstrap (done)
+struct Config
+{
+  Mode mode{Mode::Safe};
+  friend void NginReflect(NGIN::Reflection::Tag<Config>,
+                          NGIN::Reflection::TypeBuilder<Config> &b)
+  {
+    b.EnumValue("Fast", Mode::Fast);
+    b.EnumValue("Safe", Mode::Safe);
+    b.Field<&Config::mode>("mode");
+    b.Attribute("category", std::string_view{"settings"});
+  }
+};
+```
 
-- Repo scaffold, CI build, tests, examples, package config.
+Attribute values are `std::variant<bool, int64_t, double, string_view, NGIN::UInt64>`.
 
-Phase 1 — MVP (single-module, no DLL) — implemented
+## Adapters
 
-- Public headers: tags, handles (`Type`, `Field`, `Method`), `TypeBuilder<T>`, `GetType<T>()`, `GetType(name)`.
-- Registry: process-local, populated on demand; fast name/TypeId -> Type lookup; name interning.
-- Fields: reflect public data members; `Load`/`Store` thunks; `GetMut/GetConst`; `Field::GetAny/SetAny`; field attributes.
-- Methods: register const/non-const member functions (explicit member pointer signature for overloads); `GetMethod`, `ResolveMethod` (overload set + scoring); method attributes.
-- Attributes: type/field/method storage and lookup.
-- Any: SBO 32B + heap fallback; copy supported; raw data access; TypeId/Size tracking.
-- Adapters: basic sequence (std::vector, `NGIN::Containers::Vector`), tuple, variant.
-- Examples and benchmarks: QuickStart, Adapters, Methods; reflection benchmarks.
+Adapters provide read-only access to common container shapes through `Any`:
 
-Phase 2 — Methods & Invocation — implemented
+- Sequence: `std::vector`, `NGIN::Containers::Vector`
+- Tuple-like: `std::tuple`, `std::pair`, and other tuple-like types
+- Variant-like: `std::variant`
+- Optional-like: `std::optional` and types with `HasValue/Value`
+- Map-like: `std::map`, `std::unordered_map`, `NGIN::Containers::FlatHashMap`
 
-- Overload scoring with promotions/conversions and narrowing penalties.
-- `std::span<const Any>` resolve/invoke overloads and typed resolve/invoke helpers.
-- Constructor descriptors and default construction support.
-- Expanded adapters: optional-like, map, FlatHashMap.
+See `include/NGIN/Reflection/Adapters.hpp` for the exact adapter APIs.
 
-Phase 3 — Cross-DLL Registry — partial
+## Error model
 
-- ABI structs for registry and function pointer tables; exported C entrypoint (`NGINReflectionExportV1`) in `include/NGIN/Reflection/ABI.hpp`.
-- Export packs the registry into a blob with a string table and optional invoke tables; merge appends by TypeId and reports conflicts.
-- Interop tests with two shared libraries built and loaded at runtime.
-- Limitations: field accessors are not exported; merge does not resolve conflicts beyond skipping existing TypeIds.
+Most APIs return `std::expected<T, Error>` with structured overload diagnostics
+on resolution failures. Errors do **not** throw; exceptions only propagate from
+user code or allocators.
 
-Phase 4 — Attributes & Codegen Hooks
+```cpp
+auto method = t.ResolveMethod("Add", args, 2);
+if (!method)
+{
+  const auto &err = method.error();
+  // err.code, err.message, err.diagnostics
+}
+```
 
-- Scanner and codegen hooks (attribute storage is already implemented in the runtime).
-- `[[using ngin: reflect, ...]]` vendor attributes consumed by a separate scanner tool.
-- `ngin-reflect-scan` prototype (libclang‑based) generating ADL friend + `AutoRegister` glue headers.
+## Threading & registration
 
-Phase 5 — Performance & Memory Polish
+Reads are guarded by a shared lock; registration uses an exclusive lock. The
+registry is safe for concurrent reads, but **avoid concurrent registration**
+during startup (registration executes user code and is intentionally serialized).
 
-- Interning and table layout tuning, cache alignment, optional hash indexes.
-- Eliminate dynamic allocations in hot paths; leverage NGIN.Base allocators.
-- Lock‑free reads after merge; one‑time merge with clear fencing.
+## Cross-DLL ABI (optional)
 
-Phase 6 — Documentation & Samples
+Enable with `-DNGIN_REFLECTION_ENABLE_ABI=ON` (default ON).
 
-- 10+ examples: quick‑start, fields, methods, adapters, DLL plugins, custom attributes.
-- Guides: extending descriptors, writing adapters, integration into tools.
+- Exported symbol: `NGINReflectionExportV1` in `include/NGIN/Reflection/ABI.hpp`.
+- The exported blob is pointer-free and self-contained; strings are stored in a
+  table.
+- Methods/ctors are invocable across DLLs **only** when invoke tables are
+  present.
+- Current limitation: field accessors are metadata-only across DLLs.
+- The exporter allocates the blob with `NGIN::Memory::SystemAllocator` and does
+  not yet expose a free API (treat as module-owned or copy).
 
-## Build & Install
+## Build & install
 
-Requirements: C++23 compiler; NGIN.Base (found via package or sibling source).
+Requirements: C++23 compiler and NGIN.Base (found via package or sibling source).
 
 ```bash
-cmake -S . -B build -DNGIN_REFLECTION_BUILD_TESTS=ON \
-                 -DNGIN_REFLECTION_BUILD_EXAMPLES=ON \
-                 -DNGIN_REFLECTION_BUILD_BENCHMARKS=OFF \
-                 -DNGIN_REFLECTION_ENABLE_ABI=ON
+cmake -S . -B build \
+  -DNGIN_REFLECTION_BUILD_TESTS=ON \
+  -DNGIN_REFLECTION_BUILD_EXAMPLES=ON \
+  -DNGIN_REFLECTION_BUILD_BENCHMARKS=OFF \
+  -DNGIN_REFLECTION_ENABLE_ABI=ON
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-### ABI (V1) - Exporting a Registry Blob
-
-- Enable with `-DNGIN_REFLECTION_ENABLE_ABI=ON` (default ON); set OFF to omit ABI export.
-- Header: `#include <NGIN/Reflection/ABI.hpp>`.
-- Symbol: `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out);`
-- Optional init hook: `extern "C" bool NGINReflectionModuleInit();` returning `true` once module registration succeeds.
-- Layout: see `include/NGIN/Reflection/ABI.hpp` for `NGINReflectionHeaderV1` and record structs. The blob contains no raw pointers; string data is referenced via offsets.
-- Ownership: the exporter allocates the blob via `NGIN::Memory::SystemAllocator` and currently does not expose a free API. Treat the blob as module-owned for process lifetime, or copy it in the host.
-- Host-side merge: `#include <NGIN/Reflection/ABIMerge.hpp>` then `MergeRegistryV1(mod, &stats, &err)`. The current implementation validates and appends by TypeId, attaches method/ctor invoke pointers when present, and reports conflicts.
-
 Options:
 
-- `NGIN_REFLECTION_BUILD_TESTS`: build Catch2 tests (default ON)
-- `NGIN_REFLECTION_BUILD_EXAMPLES`: build examples (default OFF)
-- `NGIN_REFLECTION_BUILD_BENCHMARKS`: build microbenchmarks (default OFF)
-- `NGIN_REFLECTION_ENABLE_ABI`: build and export the C ABI entrypoint (default ON)
+- `NGIN_REFLECTION_BUILD_TESTS` (default ON)
+- `NGIN_REFLECTION_BUILD_EXAMPLES` (default OFF)
+- `NGIN_REFLECTION_BUILD_BENCHMARKS` (default OFF)
+- `NGIN_REFLECTION_ENABLE_ABI` (default ON)
 
-ABI export:
+## Docs & examples
 
-- Header: `#include <NGIN/Reflection/ABI.hpp>` (function declaration is visible only when `NGIN_REFLECTION_ENABLE_ABI` is defined)
-- Symbol: `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out);`
+- Architecture and implementation notes: `docs/Architecture.md`
+- Examples: `examples/QuickStart`, `examples/Methods`, `examples/Adapters`
 
-### Module Initialization Helpers
+## Status
 
-- Header: `#include <NGIN/Reflection/ModuleInit.hpp>`.
-- Use `EnsureModuleInitialized("ModuleName", fn)` to guard registration logic and run it once per module instance.
-- `fn` receives a `ModuleRegistration &` helper so you can call `RegisterTypes<T...>()` or access the registry directly.
-- Recommended DLL entrypoint pattern:
-
-```cpp
-extern "C" NGIN_REFLECTION_API bool NGINReflectionModuleInit()
-{
-  return NGIN::Reflection::EnsureModuleInitialized("MyPlugin", [](auto &module) {
-    module.RegisterTypes<MyComponent, AnotherComponent>();
-  });
-}
-```
-
-## Examples & Docs
-
-- Examples: `examples/QuickStart`, `examples/Methods`, `examples/Adapters`.
-- Extended docs: `docs/Architecture.md` (design, phases, data structures).
+Phase 1-2 features are implemented (fields, methods, constructors, adapters,
+Any, error model). Cross-DLL export/merge exists but has limitations; see the ABI
+section and `docs/Architecture.md` for details.

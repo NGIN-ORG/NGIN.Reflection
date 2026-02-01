@@ -1,141 +1,158 @@
-# NGIN.Reflection — Architecture & Implementation Plan
+# NGIN.Reflection - Architecture & Implementation Notes
 
-This document describes the architecture, data model, and roadmap for NGIN.Reflection. The README is intentionally concise; this file retains the deeper design details.
+This document describes the core architecture, data model, and design
+constraints for NGIN.Reflection. The README is the quick tour; this file keeps
+the deeper details and long-term plan.
 
-## Goals
+## Design goals
 
-- No macros in public headers or user code; pure C++23 API.
-- Runtime reflection for types, fields, properties, methods, attributes via ADL + fluent TypeBuilder.
-- Cross‑platform (Windows/Linux/macOS) with a clear cross‑DLL strategy.
-- Prefer NGIN.Base primitives/containers over STL; minimal STL (string_view, expected, span, variant).
-- Deterministic, allocation‑disciplined, and cache‑friendly.
-
-## Deliverables
-
-- Library target `NGIN::Reflection` (shared/static via `BUILD_SHARED_LIBS`).
-- Public headers: descriptors, handles, TypeBuilder DSL, ADL hooks, module init helper.
-- Compiled core: registry, direct integration with shared utilities (e.g., `NGIN::Utilities::Any<>`), ABI export + merge (gated by `NGIN_REFLECTION_ENABLE_ABI`).
+- No required macros in public headers or user code.
+- C++23-first, with compile-time descriptors where they improve clarity or speed.
+- Small, trivially copyable handles with cache-friendly lookup tables.
+- Deterministic behavior and minimal global state.
+- Minimal dynamic allocation in hot paths.
+- Clear ABI strategy for cross-DLL metadata import/export.
 
 ## Dependencies
 
-- `NGIN::Meta::TypeName` for canonical type names and identity.
-- `NGIN::Containers::{Vector,FlatHashMap}` for tables and indexes.
-- `NGIN::Utilities::{Any,StringInterner}` (via NGIN.Base) for runtime boxing and interned names, along with `NGIN::Memory::SystemAllocator` as their default allocator.
+- NGIN.Base: `Meta::TypeName`, `Utilities::Any`, `Containers::Vector`,
+  `Containers::FlatHashMap`, `Hashing::FNV1a64`, and `Memory::SystemAllocator`.
+- STL: `string_view`, `expected`, `span`, `variant`, `optional`, `tuple`,
+  `map`, and `unordered_map` (used mainly in adapters and diagnostics).
 
-## Core Model
+## High-level model
 
-- Small, trivially copyable handles (indices) for `Type`, `Field`, `Method`.
-- Process-local registry populated on demand; strings interned per registry.
-- Registration is not currently thread-safe (concurrent `GetType<T>()` should be avoided during startup).
-- Error handling via `std::expected<T, Error>`; `Error` can carry overload diagnostics and closest match index.
+NGIN.Reflection is a process-local registry of runtime descriptors. Registration
+is opt-in and occurs on demand through a single customization point:
 
-## Lookup APIs
+- **ADL friend** (preferred): `friend void NginReflect(Tag<T>, TypeBuilder<T>&)`
+- **Describe<T>** fallback for types you cannot modify
 
-- `GetType<T>()` ensures registration; `TryGetType<T>()` and `FindType(name)` do not register.
-- `GetField`/`GetProperty`/`GetMethod` return `std::expected` with errors; `FindField`/`FindProperty`/`FindMethod` return `std::optional`.
-- `FindMethods(name)` returns an overload view (size + index access).
-- Fields expose typed `Get<T>(obj)`/`Set(obj, value)` helpers in addition to Any-based access.
-- `ResolveMethod(name, args)` returns a `ResolvedMethod` that caches the argument shape and conversion plan.
-- Global functions use `RegisterFunction` + `ResolveFunction` and mirror method resolution.
-- Enums expose `EnumValue` lookup, parse, and stringify helpers when registered.
+The TypeBuilder writes descriptors into the registry: fields, properties,
+methods, constructors, enums, bases, and attributes. Consumers query by name or
+type id and use small handle wrappers (`Type`, `Field`, `Method`, etc.) to access
+metadata or invoke functions.
 
-## ABI Strategy (Phase 3, partial)
+## Registration flow
 
-- Versioned C entrypoint (name: `NGINReflectionExportV1`) returning a registry header and blob pointer.
-- Enabled via `NGIN_REFLECTION_ENABLE_ABI` (default ON when building the library).
-- Export blob contains a string table and optional method/ctor invoke tables; no raw pointers.
-- `MergeRegistryV1` validates the blob and appends types by `TypeId`, recording conflicts.
-- Limitations: field accessors are not exported; merge does not resolve conflicts beyond skipping existing TypeIds; blob allocation uses `SystemAllocator` with no public free API yet.
+1) `GetType<T>()` calls `EnsureRegistered<T>()` (once per type), which invokes
+   either `NginReflect(Tag<T>{}, builder)` or `Describe<T>::Do(builder)`.
+2) `TypeBuilder<T>` records metadata into the registry (name, members,
+   attributes, etc.).
+3) Handles reference immutable table entries by index + generation.
 
-## Type Identity
+`TryGetType<T>()` and `FindType(name)` do not register; they only query existing
+entries.
 
-- 64‑bit FNV‑1a over canonical names (`NGIN::Meta::TypeName<T>::qualifiedName`).
-- Future: 128‑bit policy in NGIN.Base if needed.
+## Type identity
 
-## Data Structures
+Type identity is a 64-bit FNV-1a hash of
+`NGIN::Meta::TypeName<T>::qualifiedName`:
 
-- `TypeRuntimeDesc`: name, `typeId`, size, align, fields, properties, methods, attributes, overload map.
-- `EnumRuntimeDesc`: underlying type, value table, name index, conversion helpers.
-- `BaseRuntimeDesc`: base type id/index plus `Upcast`/`Downcast` hooks.
-- `FieldRuntimeDesc`: name, typeId, size, function pointers for `Get`/`Load`/`Store`, attributes.
-- `PropertyRuntimeDesc`: name, typeId, `Get`/`Set` thunks, attributes.
-- `MethodRuntimeDesc`: name, return typeId, param typeIds, invoker FP, attributes.
-- `FunctionRuntimeDesc`: name, return typeId, param typeIds, invoker FP, attributes.
-- `CtorRuntimeDesc`: param typeIds, `Construct` FP, attributes.
-- Global `Registry`: vectors of types and hash maps for lookups.
+- `TypeIdOf<T>()` lives in `include/NGIN/Reflection/Registry.hpp`.
+- This is stable across translation units and consistent with the NGIN.Base
+  naming strategy.
 
-## TypeBuilder DSL
+Future work: optional 128-bit ids (see `Plan.MD`).
 
-- `b.SetName(qualified)`
-- `b.Field<&T::member>(name)`
-- `b.Property<Getter, Setter>(name)` or `b.Property<Getter>(name)` (getter-only)
-- `b.EnumValue(name, value)` for enum registration
-- `b.Method<sig>(name)` — use explicit member pointer type to disambiguate overloads
-- `b.StaticMethod<&T::fn>(name)` for static member functions (registered as global functions)
-- `b.Base<BaseT>()` or `b.Base<BaseT, Downcast>()` for base metadata
-- `b.Attribute(key, value)` / `b.FieldAttribute<member>(...)` / `b.PropertyAttribute<getter>(...)` / `b.MethodAttribute<sig>(...)`
-- `b.Constructor<Args...>()`
+## Registry and threading
 
-## Invocation & Overload Resolution
+The registry uses a shared mutex:
 
-- Runtime resolution (`ResolveMethod(name, Any*, count)`) with scoring:
-  - exact match > promotion > conversion; penalize narrowing/signedness changes.
-  - tie‑break by registration order.
-- Resolution failures return structured diagnostics per candidate with an optional closest-match index.
-- Typed resolution (`ResolveMethod<R, A...>(name)` or `ResolveMethod<R(Args...)>(name)`) — exact param/return IDs.
-- Invocation:
-  - `Method::Invoke(obj, Any*, count)` and `Method::Invoke(obj, span<const Any>)`.
-  - `Method::InvokeAs<R>(obj, args...)` builds `Any[]`, invokes, and returns `expected<R, Error>`.
-  - `Type::InvokeAs<R, A...>(name, obj, args...)` resolves by types then invokes.
-  - `ResolvedMethod` uses an exact-match fast path when no conversion is required.
-  - `ResolveFunction` and `Function::Invoke` follow the same scoring/diagnostic model.
+- Read operations take a shared lock.
+- Registration takes an exclusive lock.
+- The lock is re-entrant per thread, but write acquisition while holding a read
+  lock terminates. Avoid calling `GetType<T>()` while holding a read lock.
+
+In practice: allow concurrent reads, but keep registration serialized during
+startup (registration executes user code).
+
+## Handles and descriptors
+
+Handles are small structs containing indices (and a generation when needed) and
+are validated against the current registry state. Key descriptor tables:
+
+- `TypeRuntimeDesc`: name, typeId, size/align, members, attributes, overload
+  maps.
+- `FieldRuntimeDesc`: name, typeId, get/set thunks, attributes.
+- `PropertyRuntimeDesc`: name, typeId, getter/setter thunks, attributes.
+- `MethodRuntimeDesc`: name, return typeId, param typeIds, invoker, attributes.
+- `FunctionRuntimeDesc`: same as method but for free/static functions.
+- `CtorRuntimeDesc`: param typeIds, constructor invoker, attributes.
+- `EnumRuntimeDesc`: underlying type id and name/value table.
+- `BaseRuntimeDesc`: base type ids with optional upcast/downcast hooks.
+
+## Overload resolution and invocation
+
+- Methods and functions are resolved by name + argument types.
+- Resolution scoring favors exact matches, then promotions, then conversions;
+  narrowing and signedness changes are penalized.
+- Ties resolve by registration order.
+- `ResolveMethod` / `ResolveFunction` return a cached plan (`ResolvedMethod`,
+  `ResolvedFunction`) that can be invoked repeatedly.
+
+Typed helpers:
+
+- `ResolveMethod<R, A...>()` / `ResolveMethod<R(Args...)>()`
+- `Method::InvokeAs<R>(obj, args...)`
+- `Type::InvokeAs<R, A...>(name, obj, args...)`
+- `Function::InvokeAs<R>(args...)`
 
 ## Any
 
-- Uses `NGIN::Utilities::Any<>` from NGIN.Base (32B small-buffer + `SystemAllocator` fallback).
-- Reflection code relies on `Cast`, `GetTypeId`, `Size`, `Data`, `HasValue`, and `MakeVoid` provided by the shared implementation.
+`NGIN::Reflection::Any` is an alias of `NGIN::Utilities::Any<>` (NGIN.Base). It
+provides:
+
+- 32-byte small-buffer optimization (default)
+- Value boxing/unboxing with `Cast<T>()`
+- Type id and size inspection
 
 ## Adapters
 
-- Sequence adapters for `std::vector` and `NGIN::Containers::Vector`.
-- Tuple/variant adapters.
-- Optional‑like adapter (supports `std::optional` and NGIN‑style `HasValue/Value`).
-- Map adapters for `std::map`, `std::unordered_map`, and `NGIN::Containers::FlatHashMap`.
+Adapters offer read-only access to common container shapes via `Any`:
 
-## Implementation Phases
+- Sequence: `std::vector`, `NGIN::Containers::Vector`
+- Tuple-like: `std::tuple`, `std::pair`
+- Variant-like: `std::variant`
+- Optional-like: `std::optional` and types with `HasValue/Value`
+- Map-like: `std::map`, `std::unordered_map`, `NGIN::Containers::FlatHashMap`
 
-Phase 0 — Bootstrap (done)
+See `include/NGIN/Reflection/Adapters.hpp` for the exact APIs.
 
-- Repo scaffold, CI build, tests, examples, package config.
+## ABI export/merge (V1)
 
-Phase 1 — MVP (implemented)
+The optional C ABI allows a plugin to export its registry metadata for a host to
+merge:
 
-- Tags, handles, TypeBuilder<T>, type lookup, fields, methods, Any, attributes, basic adapters, examples, benches.
+- Entrypoint: `NGINReflectionExportV1` in `include/NGIN/Reflection/ABI.hpp`.
+- The blob is pointer-free; strings are stored in a single UTF-8 table.
+- Methods/ctors can be invoked across DLLs only if invoke tables are emitted.
 
-Phase 2 — Methods & Invocation (implemented)
+Current limitations:
 
-- Refined numeric scoring; `span<const Any>` overloads; typed resolve/invoke; constructors; expanded adapters.
+- Field accessors are metadata-only across DLLs (no cross-module get/set).
+- The exporter allocates the blob via `NGIN::Memory::SystemAllocator` with no
+  free API yet.
+- Merge conflicts are tracked but not resolved beyond skipping existing TypeIds.
 
-Phase 3 — Cross-DLL Registry (partial)
+## Error model
 
-- ABI structs and export/merge; interop tests; conflict tracking. Field accessors are not exported yet.
+The public surface uses `std::expected<T, Error>` and does not throw on library
+errors. The `Error` type carries:
 
-Phase 4 — Attributes & Codegen Hooks
+- `ErrorCode` and message
+- Overload diagnostics for resolution failures
+- Optional closest-match index
 
-- Scanner/codegen prototype (attribute storage is already implemented in runtime).
+Exceptions can still propagate from user code or allocators (e.g., during module
+initialization).
 
-Phase 5 — Performance & Memory Polish
+## Roadmap
 
-- Interning/layout tuning; allocator use; lock‑free reads post‑merge.
+See `Plan.MD` for the hot-reload refactor plan and future ABI evolution. Major
+milestones:
 
-Phase 6 — Documentation & Samples
-
-- 10+ examples; guides for extending descriptors/adapters; tool integration.
-
-## Acceptance Gates
-
-- v0.1 (done): Type/field basics, Any, single registry, examples/tests.
-- v0.2 (done): Overloads, constructors, adapters, error model, perf baselines.
-- v0.3 (partial): Cross-DLL merge + handles, loader helpers, diagnostics.
-- v0.4: Scanner/codegen preview, warning‑free.
-- v1.0: Stabilized API/ABI, documented, benchmarked.
+- ABI V2 with module ownership and safe hot-reload
+- Function-pointer indirection table
+- ABI compatibility checks and conflict resolution
+- Expanded docs and examples
