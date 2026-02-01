@@ -1,20 +1,45 @@
 # NGIN.Reflection
 
-Runtime reflection for modern C++23: zero required macros, no RTTI in the core, and a
-compact registry designed for fast lookups. You describe types once (via an ADL
-friend or a traits specialization) and then query fields, properties, methods,
-constructors, enums, and attributes at runtime.
+Runtime reflection for modern **C++23**: **no required macros**, **no RTTI in the core**, and a compact registry designed for fast lookups.
+
+You describe types once (via an **ADL friend** or **traits specialization**) and then query **fields, properties, methods, constructors, enums, and attributes** at runtime—without building a base ViewModel hierarchy of your own 😄
+
+---
 
 ## At a glance
 
-- Header-first, template-friendly API with minimal compiled core.
-- Process-local registry with interned names and small, cheap handles.
-- Overload resolution with promotions/conversions + typed invoke helpers.
-- Any-based boxing with 32-byte SBO (from NGIN.Base).
-- Optional cross-DLL ABI export/merge (metadata always; method/ctor invoke when
-  tables are present).
+- **Header-first, template-friendly** API with minimal compiled core.
+- **Process-local registry** with interned names and small, cheap handles.
+- **Overload resolution** with promotions/conversions + typed invoke helpers.
+- **Any-based boxing** with **32-byte SBO** (from `NGIN.Base`).
+- Optional **cross-DLL ABI export/merge** (metadata always; invoke when tables are present).
+
+---
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Installation](#installation)
+- [Registering types](#registering-types)
+- [Working with metadata](#working-with-metadata)
+  - [Fields & properties](#fields--properties)
+  - [Methods](#methods)
+  - [Constructors](#constructors)
+  - [Free/static functions](#freestatic-functions)
+  - [Enums & attributes](#enums--attributes)
+- [Adapters](#adapters)
+- [Error model](#error-model)
+- [Threading & registration](#threading--registration)
+- [Cross-DLL ABI (optional)](#cross-dll-abi-optional)
+- [Build options](#build-options)
+- [Docs & examples](#docs--examples)
+- [Status](#status)
+
+---
 
 ## Quick start
+
+Define a type description using an **ADL friend** (preferred: can access private members) and then query it at runtime.
 
 ```cpp
 #include <NGIN/Reflection/Reflection.hpp>
@@ -46,11 +71,9 @@ int main()
   auto t = GetType<User>();
   User u{};
 
-  auto idField = t.GetField("id").value();
-  idField.Set(u, 42).value();
+  t.GetField("id")->Set(u, 42).value();
 
-  auto scoreProp = t.GetProperty("Score").value();
-  scoreProp.Set(u, 7).value();
+  t.GetProperty("Score")->Set(u, 7).value();
 
   auto add = t.ResolveMethod<int, int, int>("Add").value();
   auto sum = add.InvokeAs<int>(&u, 3, 4).value();
@@ -59,11 +82,37 @@ int main()
 }
 ```
 
+---
+
+## Installation
+
+### Requirements
+
+- A **C++23** compiler
+- `NGIN.Base` (found via package or sibling source)
+
+### Build & test
+
+```bash
+cmake -S . -B build \
+  -DNGIN_REFLECTION_BUILD_TESTS=ON \
+  -DNGIN_REFLECTION_BUILD_EXAMPLES=ON \
+  -DNGIN_REFLECTION_BUILD_BENCHMARKS=OFF \
+  -DNGIN_REFLECTION_ENABLE_ABI=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+> Tip: If you support package managers (vcpkg/Conan), add a small snippet here later.
+> Until then, keeping this section honest is better than “maybe works” install docs.
+
+---
+
 ## Registering types
 
-There are two supported customization points:
+There are two supported customization points.
 
-1) **ADL friend** (preferred, grants private access)
+### 1) ADL friend (preferred)
 
 ```cpp
 struct Secret
@@ -78,7 +127,7 @@ struct Secret
 };
 ```
 
-2) **Trait fallback** for external types
+### 2) Trait fallback (for external types)
 
 ```cpp
 namespace NGIN::Reflection
@@ -96,12 +145,13 @@ namespace NGIN::Reflection
 }
 ```
 
-Notes:
+### Notes
 
-- `GetType<T>()` registers (if needed). `TryGetType<T>()` and `FindType(name)`
-  do not.
-- Overload disambiguation: explicitly cast overloaded member pointers to their
-  exact signatures.
+- `GetType<T>()` registers (if needed).
+  `TryGetType<T>()` and `FindType(name)` do **not** register.
+- Overload disambiguation: explicitly cast overloaded member pointers to their exact signature.
+
+---
 
 ## Working with metadata
 
@@ -141,8 +191,12 @@ struct Widget
 };
 
 auto tw = NGIN::Reflection::GetType<Widget>();
-NGIN::Reflection::Any args[2] = {NGIN::Reflection::Any{1},
-                                 NGIN::Reflection::Any{2.0f}};
+
+NGIN::Reflection::Any args[2] = {
+  NGIN::Reflection::Any{1},
+  NGIN::Reflection::Any{2.0f},
+};
+
 auto anyWidget = tw.Construct(args, 2).value();
 Widget w = anyWidget.Cast<Widget>();
 ```
@@ -153,6 +207,7 @@ Widget w = anyWidget.Cast<Widget>();
 int Add(int a, int b) { return a + b; }
 
 NGIN::Reflection::RegisterFunction<&Add>("Add");
+
 auto fn = NGIN::Reflection::ResolveFunction<int, int, int>("Add").value();
 int r = fn.InvokeAs<int>(2, 3).value();
 ```
@@ -176,7 +231,17 @@ struct Config
 };
 ```
 
-Attribute values are `std::variant<bool, int64_t, double, string_view, NGIN::UInt64>`.
+Attribute values are:
+
+- `bool`
+- `int64_t`
+- `double`
+- `std::string_view`
+- `NGIN::UInt64`
+
+(stored as `std::variant<...>`)
+
+---
 
 ## Adapters
 
@@ -188,13 +253,16 @@ Adapters provide read-only access to common container shapes through `Any`:
 - Optional-like: `std::optional` and types with `HasValue/Value`
 - Map-like: `std::map`, `std::unordered_map`, `NGIN::Containers::FlatHashMap`
 
-See `include/NGIN/Reflection/Adapters.hpp` for the exact adapter APIs.
+See: `include/NGIN/Reflection/Adapters.hpp` for exact adapter APIs.
+
+---
 
 ## Error model
 
-Most APIs return `std::expected<T, Error>` with structured overload diagnostics
-on resolution failures. Errors do **not** throw; exceptions only propagate from
-user code or allocators.
+Most APIs return `std::expected<T, Error>` with structured overload diagnostics on resolution failures.
+
+- Errors do **not** throw.
+- Exceptions only propagate from user code or allocators.
 
 ```cpp
 auto method = t.ResolveMethod("Add", args, 2);
@@ -205,53 +273,52 @@ if (!method)
 }
 ```
 
+---
+
 ## Threading & registration
 
-Reads are guarded by a shared lock; registration uses an exclusive lock. The
-registry is safe for concurrent reads, but **avoid concurrent registration**
-during startup (registration executes user code and is intentionally serialized).
+- Reads are guarded by a **shared lock**
+- Registration uses an **exclusive lock**
+
+The registry is safe for concurrent reads, but **avoid concurrent registration** during startup
+(registration executes user code and is intentionally serialized).
+
+---
 
 ## Cross-DLL ABI (optional)
 
-Enable with `-DNGIN_REFLECTION_ENABLE_ABI=ON` (default ON).
+Enable with: `-DNGIN_REFLECTION_ENABLE_ABI=ON` (default ON)
 
-- Exported symbol: `NGINReflectionExportV1` in `include/NGIN/Reflection/ABI.hpp`.
-- The exported blob is pointer-free and self-contained; strings are stored in a
-  table.
-- Methods/ctors are invocable across DLLs **only** when invoke tables are
-  present.
-- Current limitation: field accessors are metadata-only across DLLs.
-- The exporter allocates the blob with `NGIN::Memory::SystemAllocator` and does
-  not yet expose a free API (treat as module-owned or copy).
+- Exported symbol: `NGINReflectionExportV1` in `include/NGIN/Reflection/ABI.hpp`
+- Exported blob is pointer-free and self-contained; strings are stored in a table
+- Methods/ctors are invocable across DLLs **only** when invoke tables are present
+- Current limitation: field accessors are **metadata-only** across DLLs
+- Exporter allocates with `NGIN::Memory::SystemAllocator` and does not yet expose a free API
+  (treat as module-owned or copy)
 
-## Build & install
+---
 
-Requirements: C++23 compiler and NGIN.Base (found via package or sibling source).
-
-```bash
-cmake -S . -B build \
-  -DNGIN_REFLECTION_BUILD_TESTS=ON \
-  -DNGIN_REFLECTION_BUILD_EXAMPLES=ON \
-  -DNGIN_REFLECTION_BUILD_BENCHMARKS=OFF \
-  -DNGIN_REFLECTION_ENABLE_ABI=ON
-cmake --build build -j
-ctest --test-dir build --output-on-failure
-```
-
-Options:
+## Build options
 
 - `NGIN_REFLECTION_BUILD_TESTS` (default ON)
 - `NGIN_REFLECTION_BUILD_EXAMPLES` (default OFF)
 - `NGIN_REFLECTION_BUILD_BENCHMARKS` (default OFF)
 - `NGIN_REFLECTION_ENABLE_ABI` (default ON)
 
+---
+
 ## Docs & examples
 
 - Architecture and implementation notes: `docs/Architecture.md`
-- Examples: `examples/QuickStart`, `examples/Methods`, `examples/Adapters`
+- Examples:
+
+  - `examples/QuickStart`
+  - `examples/Methods`
+  - `examples/Adapters`
+
+---
 
 ## Status
 
-Phase 1-2 features are implemented (fields, methods, constructors, adapters,
-Any, error model). Cross-DLL export/merge exists but has limitations; see the ABI
-section and `docs/Architecture.md` for details.
+Phase 1–2 features are implemented (fields, methods, constructors, adapters, Any, error model).
+Cross-DLL export/merge exists but has limitations; see the ABI section and `docs/Architecture.md`.
