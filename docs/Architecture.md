@@ -116,8 +116,16 @@ Phase 3 — Cross‑DLL Registry (implemented)
 - Usage pattern:
   ```cpp
   MergeDiagnostics diag{};
+  auto handler = [](MergeEvent ev, const MergeEventInfo &info) {
+    if (ev == MergeEvent::TypeConflict) {
+      // Log or record the conflict for diagnostics.
+    } else if (ev == MergeEvent::ModuleComplete) {
+      // Observe per-module statistics if desired.
+    }
+  };
+  auto callbacks = MakeMergeCallbacks(handler);
   const char *err = nullptr;
-  if (!MergeRegistryV1(mod, &stats, &err, &diag) && diag.HasConflicts()) {
+  if (!MergeRegistryV1(mod, &stats, &err, &diag, &callbacks) && diag.HasConflicts()) {
     for (const auto &conflict : diag.typeConflicts) {
       // host logging or conflict resolution
     }
@@ -126,11 +134,15 @@ Phase 3 — Cross‑DLL Registry (implemented)
   verify.checkMethodOverloads = true;
   (void)VerifyProcessRegistry(verify); // optional integrity check
   ```
-- Future: consider host-side logging hooks and advanced validation toggles as requirements emerge.
+- Future: additional host-side logging helpers and advanced validation toggles can be layered via `MergeCallbacks`.
 
 Phase 4 — Attributes & Codegen Hooks
 
-- Attribute storage and scanner prototype.
+- Attribute storage: finalize `AttributeValue` variant (bool/int64/double/string_view/TypeId/blob) and expose indexed + keyed lookups across type/field/method descriptors.
+- ABI integration: persist attributes inside exported blobs with stable key IDs so cross-module consumers see consistent metadata.
+- Codegen pipeline: `[[using ngin::reflect(... )]]` vendor attributes mark types/functions; `ngin-reflect-scan` (libclang) parses sources, emits `*.ngin.reflect.hpp` files that contain generated ADL/Describe stubs and attribute registrations, and drops CMake targets for incremental rebuilds.
+- Tooling deliverables: CLI options for include/exclude filters, diagnostic reporting for unsupported constructs, and sample CI configuration for cache reuse.
+- Authoring docs: guidelines for custom attribute schemas, naming conventions, and strategies for mixing handwritten and generated descriptors.
 
 Phase 5 — Performance & Memory Polish
 

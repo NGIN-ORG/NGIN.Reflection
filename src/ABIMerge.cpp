@@ -16,7 +16,8 @@ namespace
 bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
                                        MergeStats *stats,
                                        const char **error,
-                                       MergeDiagnostics *diagnostics) noexcept
+                                       MergeDiagnostics *diagnostics,
+                                       const MergeCallbacks *callbacks) noexcept
 {
   if (error)
     *error = nullptr;
@@ -24,23 +25,34 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     diagnostics->Reset();
 
   static thread_local std::array<char, 160> errorBuf{};
+  auto emit = [&](MergeEvent ev, const auto &init) noexcept {
+    if (!callbacks || !callbacks->HasListener())
+      return;
+    MergeEventInfo info{};
+    init(info);
+    callbacks->onEvent(ev, info, callbacks->userData);
+  };
   auto setErrorLiteral = [&](const char *msg) noexcept {
     if (error)
       *error = msg;
+    emit(MergeEvent::Error, [&](MergeEventInfo &info) {
+      info.module = &module;
+      info.message = msg;
+    });
   };
   auto setErrorFmt = [&](const char *fmt, auto... args) noexcept {
-    if (!error)
-      return;
     int written = std::snprintf(errorBuf.data(), errorBuf.size(), fmt, args...);
     if (written < 0)
-    {
       errorBuf[0] = '\0';
-    }
     else if (static_cast<std::size_t>(written) >= errorBuf.size())
-    {
       errorBuf[errorBuf.size() - 1] = '\0';
-    }
-    *error = errorBuf.data();
+    const char *msg = errorBuf.data();
+    if (error)
+      *error = msg;
+    emit(MergeEvent::Error, [&](MergeEventInfo &info) {
+      info.module = &module;
+      info.message = msg;
+    });
   };
 
   if (!module.header || !module.blob)
@@ -119,6 +131,10 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
   std::uint32_t ctorGlobalIdx = 0;
   bool conflictErrorSet = false;
 
+  emit(MergeEvent::BeginModule, [&](MergeEventInfo &info) {
+    info.module = &module;
+  });
+
   for (std::uint64_t i = 0; i < h.typeCount; ++i)
   {
     const auto &ti = types[i];
@@ -140,6 +156,13 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
         conflict.incomingName = view(ti.qualifiedName);
         diagnostics->typeConflicts.PushBack(std::move(conflict));
       }
+      emit(MergeEvent::TypeConflict, [&](MergeEventInfo &info) {
+        info.module = &module;
+        info.typeId = typeId;
+        info.existingName = reg.types[*existingIdx].qualifiedName;
+        info.incomingName = view(ti.qualifiedName);
+        info.message = std::string_view{errorBuf.data()};
+      });
       continue;
     }
 
@@ -274,6 +297,11 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     }
 #endif
     ++added;
+    emit(MergeEvent::TypeAdded, [&](MergeEventInfo &info) {
+      info.module = &module;
+      info.typeId = typeId;
+      info.incomingName = reg.types[idx].qualifiedName;
+    });
   }
 
   if (stats)
@@ -282,6 +310,11 @@ bool NGIN::Reflection::MergeRegistryV1(const NGINReflectionRegistryV1 &module,
     stats->typesAdded += added;
     stats->typesConflicted += conflicted;
   }
+  emit(MergeEvent::ModuleComplete, [&](MergeEventInfo &info) {
+    info.module = &module;
+    info.typesAdded = added;
+    info.typesConflicted = conflicted;
+  });
   return true;
 }
 

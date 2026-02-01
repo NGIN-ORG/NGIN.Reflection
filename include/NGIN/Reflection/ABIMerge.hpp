@@ -6,12 +6,57 @@
 
 #include <cstddef>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <new>
 #include <string_view>
+#include <type_traits>
 
 namespace NGIN::Reflection
 {
+  enum class MergeEvent : std::uint8_t
+  {
+    BeginModule = 1,
+    TypeAdded = 2,
+    TypeConflict = 3,
+    Error = 4,
+    ModuleComplete = 5,
+  };
+
+  struct MergeEventInfo
+  {
+    const NGINReflectionRegistryV1 *module{nullptr};
+    NGIN::UInt64 typeId{0};
+    std::string_view existingName{};
+    std::string_view incomingName{};
+    std::string_view message{};
+    std::uint64_t typesAdded{0};
+    std::uint64_t typesConflicted{0};
+  };
+
+  struct MergeCallbacks
+  {
+    using EventFn = void (*)(MergeEvent, const MergeEventInfo &, void *);
+    EventFn onEvent{nullptr};
+    void *userData{nullptr};
+
+    [[nodiscard]] bool HasListener() const noexcept { return onEvent != nullptr; }
+  };
+
+  template <class Fn>
+  [[nodiscard]] inline MergeCallbacks MakeMergeCallbacks(Fn &fn) noexcept
+  {
+    using Callable = std::remove_reference_t<Fn>;
+    static_assert(std::is_invocable_r_v<void, Fn &, MergeEvent, const MergeEventInfo &>,
+                  "Fn must be callable with (MergeEvent, MergeEventInfo)");
+    return MergeCallbacks{
+        [](MergeEvent ev, const MergeEventInfo &info, void *user) {
+          auto *callable = static_cast<Callable *>(user);
+          std::invoke(*callable, ev, info);
+        },
+        const_cast<Callable *>(std::addressof(fn))};
+  }
+
   struct MergeStats
   {
     std::uint64_t modulesMerged{0};
@@ -87,7 +132,8 @@ namespace NGIN::Reflection
   bool MergeRegistryV1(const NGINReflectionRegistryV1 &module,
                        MergeStats *stats = nullptr,
                        const char **error = nullptr,
-                       MergeDiagnostics *diagnostics = nullptr) noexcept;
+                       MergeDiagnostics *diagnostics = nullptr,
+                       const MergeCallbacks *callbacks = nullptr) noexcept;
 
   struct VerifyRegistryOptions
   {

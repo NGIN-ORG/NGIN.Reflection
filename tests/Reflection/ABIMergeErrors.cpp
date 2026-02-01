@@ -6,6 +6,8 @@
 #include <NGIN/Reflection/Registry.hpp>
 
 #include <string_view>
+#include <vector>
+#include <algorithm>
 
 #if defined(NGIN_REFLECTION_ENABLE_ABI)
 
@@ -208,6 +210,64 @@ TEST_CASE("VerifyProcessRegistryDetectsInvalidMethodOverload", "[reflection][ABI
   CHECK(std::string_view{err}.starts_with("method overload index overflow"));
 
   runtime.methodOverloads.Remove(overloadId);
+}
+
+namespace
+{
+  struct CallbackProbe
+  {
+    std::vector<std::pair<MergeEvent, MergeEventInfo>> events;
+    void operator()(MergeEvent ev, const MergeEventInfo &info)
+    {
+      events.emplace_back(ev, info);
+    }
+    void Clear() { events.clear(); }
+  };
+} // namespace
+
+TEST_CASE("MergeCallbacksReceiveConflictEvents", "[reflection][ABIMerge]")
+{
+  (void)TypeOf<long long>(); // ensure at least one known type exists
+
+  NGINReflectionRegistryV1 mod{};
+  REQUIRE(NGINReflectionExportV1(&mod));
+
+  CallbackProbe handler{};
+  auto callbacks = MakeMergeCallbacks(handler);
+
+  const char *err = nullptr;
+  MergeStats stats{};
+  MergeDiagnostics diag{};
+  REQUIRE(MergeRegistryV1(mod, &stats, &err, &diag, &callbacks));
+
+  REQUIRE_FALSE(handler.events.empty());
+  CHECK(std::any_of(handler.events.begin(), handler.events.end(), [](const auto &p) { return p.first == MergeEvent::BeginModule; }));
+  CHECK(std::any_of(handler.events.begin(), handler.events.end(), [](const auto &p) {
+    return p.first == MergeEvent::ModuleComplete;
+  }));
+
+  handler.Clear();
+  err = nullptr;
+  REQUIRE(MergeRegistryV1(mod, &stats, &err, &diag, &callbacks));
+  REQUIRE(std::any_of(handler.events.begin(), handler.events.end(), [](const auto &p) { return p.first == MergeEvent::TypeConflict; }));
+  REQUIRE(std::any_of(handler.events.begin(), handler.events.end(), [](const auto &p) { return p.first == MergeEvent::Error; }));
+  REQUIRE(std::any_of(handler.events.begin(), handler.events.end(), [](const auto &p) {
+    return p.first == MergeEvent::ModuleComplete && p.second.typesConflicted > 0;
+  }));
+}
+
+TEST_CASE("MergeCallbacksReceiveErrorOnNullModule", "[reflection][ABIMerge]")
+{
+  CallbackProbe handler{};
+  auto callbacks = MakeMergeCallbacks(handler);
+
+  MergeStats stats{};
+  const char *err = nullptr;
+  NGINReflectionRegistryV1 mod{};
+
+  const bool ok = MergeRegistryV1(mod, &stats, &err, nullptr, &callbacks);
+  CHECK_FALSE(ok);
+  REQUIRE(std::any_of(handler.events.begin(), handler.events.end(), [](const auto &p) { return p.first == MergeEvent::Error; }));
 }
 
 #else

@@ -194,13 +194,25 @@ Phase 2 — Methods & Invocation (implemented)
 Phase 3 — Cross‑DLL Registry (implemented)
 
 - Implemented ABI V1 export (`NGINReflectionExportV1`) and binary blob layout generation.
-- Landed module merge path with type dedupe/aliasing, optional `MergeDiagnostics` collection, `VerifyProcessRegistry` helper, and dual-plugin interop + negative fixtures.
+- Landed module merge path with type dedupe/aliasing, optional `MergeDiagnostics` collection, `MergeCallbacks` logging hook, `VerifyProcessRegistry` helper, and dual-plugin interop + negative fixtures.
 - Host usage (opt-in):
   ```cpp
   NGINReflectionRegistryV1 mod{};
   MergeDiagnostics diag{};
+  auto handler = [](MergeEvent ev, const MergeEventInfo &info) {
+    if (ev == MergeEvent::TypeConflict) {
+      std::fprintf(stderr, "conflict on %.*s\n",
+                   static_cast<int>(info.incomingName.size()),
+                   info.incomingName.data());
+    } else if (ev == MergeEvent::ModuleComplete) {
+      std::fprintf(stderr, "merge stats: +%llu / conflicts=%llu\n",
+                   static_cast<unsigned long long>(info.typesAdded),
+                   static_cast<unsigned long long>(info.typesConflicted));
+    }
+  };
+  auto cb = MakeMergeCallbacks(handler);
   const char *err = nullptr;
-  if (!MergeRegistryV1(mod, nullptr, &err, &diag) && diag.HasConflicts()) {
+  if (!MergeRegistryV1(mod, nullptr, &err, &diag, &cb) && diag.HasConflicts()) {
     // inspect diag.typeConflicts for each duplicate TypeId
   }
   VerifyRegistryOptions opts{};
@@ -211,9 +223,11 @@ Phase 3 — Cross‑DLL Registry (implemented)
 
 Phase 4 — Attributes & Codegen Hooks
 
-- Attribute storage (bool/int64/double/string/TypeId/blob).
-- `[[using ngin: reflect, ...]]` vendor attributes consumed by a separate scanner tool.
-- `ngin-reflect-scan` prototype (libclang‑based) generating ADL friend + `auto_register` glue headers.
+- Extend attribute storage to cover structured values (bool/int64/double/string_view/TypeId/blob) with lightweight iteration/query helpers on `Type`, `Field`, and `Method`.
+- Stabilize attribute export in the ABI blob so metadata survives module boundaries.
+- Introduce vendor attributes (`[[using ngin::reflect(... )]]`) collected by a libclang-based `ngin-reflect-scan` tool.
+- Ship a prototype codegen pipeline: scan translation units, emit `*.ngin.reflect.hpp` shims that forward to `Builder<T>` and register attributes, wire it into CMake presets/CI.
+- Document authoring guidance (naming, attribute schema, opt-in strategy) for teams adopting the scanner.
 
 Phase 5 — Performance & Memory Polish
 
@@ -246,7 +260,7 @@ ctest --test-dir build --output-on-failure
 - Symbol: `extern "C" bool NGINReflectionExportV1(NGINReflectionRegistryV1* out);`
 - Optional init hook: `extern "C" bool NGINReflectionModuleInit();` returning `true` once module registration succeeds.
 - Layout: see `include/NGIN/Reflection/ABI.hpp` for `NGINReflectionHeaderV1` and record structs. The blob contains no raw pointers; string data is referenced via offsets.
-- Host-side merge (skeleton): `#include <NGIN/Reflection/ABIMerge.hpp>` then `MergeRegistryV1(mod, &stats, &err)`. The initial implementation validates and records basic stats; full dedup/reindexing follows.
+- Host-side merge (skeleton): `#include <NGIN/Reflection/ABIMerge.hpp>` then `MergeRegistryV1(mod, &stats, &err, &diag, &callbacks)` with diagnostics/callbacks optional (pass `nullptr` to skip). The initial implementation validates and records basic stats; full dedup/reindexing follows.
 
 Options:
 
