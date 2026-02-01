@@ -34,13 +34,13 @@ namespace NGIN::Reflection
       auto &reg = detail::GetRegistry();
       auto &typeDesc = reg.types[m_index];
       const auto oldNameId = typeDesc.qualifiedNameId;
-      const auto oldName = typeDesc.qualifiedName;
       if (!oldNameId.empty())
       {
         if (auto *p = reg.byName.GetPtr(oldNameId); p && *p == m_index)
           reg.byName.Remove(oldNameId);
       }
 #if defined(_MSC_VER)
+      const auto oldName = typeDesc.qualifiedName;
       if (!oldName.empty())
       {
         auto remove_alias = [&](std::string_view prefix)
