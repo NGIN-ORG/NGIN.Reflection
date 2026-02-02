@@ -163,6 +163,16 @@ namespace NGIN::Reflection
 - `GetType<T>()` registers (if needed)
 - `TryGetType<T>()` and `FindType(name)` never register
 - Overloaded members must be disambiguated with an explicit cast
+- Type identity is based on `NGIN::Meta::TypeName<T>::qualifiedName`: stable
+  across translation units, but not guaranteed across different compilers or
+  standard libraries
+
+Overload disambiguation example:
+
+```cpp
+b.Method<static_cast<int (Math::*)(int,int) const>(&Math::mul)>("mul");
+b.Method<static_cast<double (Math::*)(int,double) const>(&Math::mul)>("mul");
+```
 
 ---
 
@@ -243,10 +253,25 @@ struct Config
 
 ## Adapters
 
-Adapters provide read‑only access to common container shapes through `Any`
+Adapters provide read‑only traversal of common container shapes
 (sequence, tuple‑like, variant‑like, optional‑like, and map‑like containers).
+Prefer the `*View()` APIs, which return non‑owning `ConstAnyView` and avoid
+copies; the `Any`‑returning methods copy values.
 
 See `include/NGIN/Reflection/Adapters.hpp` for details.
+
+Example (sequence + view):
+
+```cpp
+std::vector<int> v{1, 2, 3};
+auto a = NGIN::Reflection::Adapters::MakeSequenceAdapter(v);
+for (NGIN::UIntSize i = 0; i < a.Size(); ++i)
+{
+  auto view = a.ElementView(i);
+  int value = view.Cast<int>();
+  (void)value;
+}
+```
 
 ---
 
@@ -257,6 +282,7 @@ Most APIs return `std::expected<T, Error>`:
 - No exceptions for library errors
 - Structured diagnostics for overload resolution failures
 - Exceptions only propagate from user code or allocators
+- Copying `Any` may throw if the stored type is not copyable/trivially copyable
 
 ---
 
@@ -267,12 +293,16 @@ Most APIs return `std::expected<T, Error>`:
 
 Concurrent reads are safe.
 Avoid concurrent registration during startup — registration executes user code.
+Calling registration while holding a read lock will `std::terminate`.
 
 ---
 
 ## Cross-DLL ABI (optional)
 
 Enable with: `-DNGIN_REFLECTION_ENABLE_ABI=ON`
+
+**Advanced / experimental:** the ABI surface is usable but evolving and has
+known limitations.
 
 - Metadata import/export via a stable C ABI
 - Pointer‑free blob with interned string table

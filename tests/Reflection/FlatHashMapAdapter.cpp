@@ -16,6 +16,10 @@ TEST_CASE("FlatHashMapAdapterExposesContainerOperations",
   auto a = MakeFlatHashMapAdapter(m);
   CHECK(a.Size() == NGIN::UIntSize{2});
   CHECK(a.ContainsKey(Any{1}));
-  CHECK(a.FindValue(Any{2}).Cast<int>() == 20);
+  CHECK(a.FindValueView(Any{2}).Cast<int>() == 20);
   CHECK_FALSE(a.ContainsKey(Any{3}));
+
+  auto miss = a.TryFindValueView(Any{3});
+  CHECK_FALSE(miss.has_value());
+  CHECK(miss.error().code == ErrorCode::NotFound);
 }

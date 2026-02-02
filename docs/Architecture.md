@@ -68,7 +68,7 @@ Properties:
 
 - Stable across translation units
 - Consistent with NGIN.Base naming
-- Not guaranteed stable across different compilers or ABI modes
+- Not guaranteed stable across different compilers, standard libraries, or ABI modes
 
 Future work includes optional 128‑bit identifiers.
 
@@ -118,6 +118,10 @@ Resolution considers:
 2. Promotions
 3. Conversions
 
+Conversions are limited to the numeric conversions implemented in
+`NGIN::Reflection::detail::ConvertAny` (exact match + arithmetic conversions).
+No user-defined conversions are attempted.
+
 Narrowing and signedness changes are penalized.
 Ties resolve by registration order.
 
@@ -133,6 +137,7 @@ can be reused across invocations.
 - 32‑byte small‑buffer optimization
 - Type‑safe boxing/unboxing
 - Runtime type inspection
+- Copying an `Any` that holds a non‑copyable, non‑trivially‑copyable type will throw
 
 ---
 
@@ -146,7 +151,8 @@ Adapters provide read‑only access to common container shapes via `Any`:
 - Optional‑like
 - Map‑like
 
-Adapters never mutate containers and never allocate.
+Adapters never mutate containers. `*View()` APIs return non‑owning views; `Any`
+returning APIs copy values and may allocate depending on the stored type.
 
 ---
 
@@ -157,6 +163,14 @@ The optional C ABI allows a module to export its registry metadata:
 - Entrypoint: `NGINReflectionExportV1`
 - Pointer‑free blob with interned UTF‑8 strings
 - Import merges metadata by TypeId
+
+Conflict behavior:
+
+- `AppendOnly` (default): conflicting TypeIds are skipped and counted
+- `ReplaceOnConflict`: replaces only when `moduleId` matches (or moduleId is 0)
+- `RejectOnConflict`: merge fails with an error string
+
+Merge diagnostics are exposed via `MergeStats` and the optional error string.
 
 Limitations:
 
