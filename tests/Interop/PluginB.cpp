@@ -1,38 +1,23 @@
-#include <NGIN/Reflection/TypeBuilder.hpp>
-#include <NGIN/Reflection/Registry.hpp>
-#include <NGIN/Reflection/ABI.hpp>
-#include <NGIN/Reflection/ModuleInit.hpp>
+#include <NGIN/Reflection/Reflection.hpp>
 
 namespace Interop
 {
-  // Same qualified name/typeId as in PluginA to force a conflict
-  struct Common { int a{2}; };
-
   struct Multiplier
   {
-    int Mul(int x, int y) const { return x * y; }
+    int Mul(int lhs, int rhs) const { return lhs * rhs; }
   };
 
-  template <class T>
-  void NginReflect(NGIN::Reflection::Tag<T>, NGIN::Reflection::TypeBuilder<T> &);
-
-  template <>
-  void NginReflect<Common>(NGIN::Reflection::Tag<Common>, NGIN::Reflection::TypeBuilder<Common> &b)
+  inline void NginReflect(NGIN::Reflection::Tag<Multiplier>, NGIN::Reflection::TypeBuilder<Multiplier> &builder)
   {
-    b.Field<&Common::a>("a");
+    builder.SetName("Interop::Multiplier");
+    builder.Method<&Multiplier::Mul>("Mul");
   }
-
-  template <>
-  void NginReflect<Multiplier>(NGIN::Reflection::Tag<Multiplier>, NGIN::Reflection::TypeBuilder<Multiplier> &b)
-  {
-    b.Method<&Multiplier::Mul>("Mul");
-  }
-}
+} // namespace Interop
 
 extern "C" NGIN_REFLECTION_API bool NGINReflectionModuleInit()
 {
   using namespace NGIN::Reflection;
-  return EnsureModuleInitialized("InteropPluginB", [](ModuleRegistration &module) {
-    module.RegisterTypes<Interop::Common, Interop::Multiplier>();
+  return EnsureModuleInitialized("Interop.PluginB", [](ModuleRegistration &module) {
+    module.RegisterType<Interop::Multiplier>();
   });
 }

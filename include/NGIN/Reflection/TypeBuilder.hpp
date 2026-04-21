@@ -1,603 +1,395 @@
-// TypeBuilder.hpp
-// Public TypeBuilder<T> used inside ADL friend to describe fields (Phase 1)
 #pragma once
 
 #include <NGIN/Reflection/Registry.hpp>
-#include <NGIN/Reflection/NameUtils.hpp>
-#include <NGIN/Hashing/FNV.hpp>
-#include <NGIN/Meta/TypeTraits.hpp>
-#include <NGIN/Reflection/Convert.hpp>
-#include <string_view>
+
+#include <atomic>
+#include <cstring>
+#include <string>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
 namespace NGIN::Reflection
 {
-
   namespace detail
   {
-    template <auto Getter>
-    Any PropertyGet(const void *obj);
-  }
-
-  template <class T>
-  class TypeBuilder
-  {
-  public:
-    // Note: constructed by the registry when invoking ADL reflect; binds to a specific type index.
-    explicit TypeBuilder(NGIN::UInt32 typeIndex) : m_index(typeIndex) {}
-
-    // Optional name overrides (qualified or unqualified). If not set, defaults to Meta::TypeName<T>.
-    TypeBuilder &SetName(std::string_view qualified)
+    inline constexpr NGINReflectionStatus OkStatus() noexcept
     {
-      auto &reg = detail::GetRegistry();
-      auto &typeDesc = reg.types[m_index];
-      const auto oldNameId = typeDesc.qualifiedNameId;
-      if (!oldNameId.empty())
-      {
-        if (auto *p = reg.byName.GetPtr(oldNameId); p && *p == m_index)
-          reg.byName.Remove(oldNameId);
-      }
-#if defined(_MSC_VER)
-      const auto oldName = typeDesc.qualifiedName;
-      if (!oldName.empty())
-      {
-        auto remove_alias = [&](std::string_view prefix)
-        {
-          if (oldName.size() > prefix.size() && oldName.substr(0, prefix.size()) == prefix)
-          {
-            auto trimmed = oldName.substr(prefix.size());
-            if (auto *p = reg.byName.GetPtr(trimmed); p && *p == m_index)
-              reg.byName.Remove(trimmed);
-          }
-        };
-        remove_alias("class ");
-        remove_alias("struct ");
-        remove_alias("enum ");
-        remove_alias("union ");
-      }
-#endif
-      auto id = detail::InternNameId(typeDesc.moduleId, qualified);
-      typeDesc.qualifiedNameId = id;
-      typeDesc.qualifiedName = detail::NameFromId(id);
-      // Update name index as well
-      reg.byName.Insert(id, m_index);
-#if defined(_MSC_VER)
-      {
-        auto qn = typeDesc.qualifiedName;
-        auto add_alias = [&](std::string_view prefix)
-        {
-          if (qn.size() > prefix.size() && qn.substr(0, prefix.size()) == prefix)
-          {
-            auto trimmed = qn.substr(prefix.size());
-            auto aliasId = detail::InternNameId(typeDesc.moduleId, trimmed);
-            reg.byName.Insert(aliasId, m_index);
-          }
-        };
-        add_alias("class ");
-        add_alias("struct ");
-        add_alias("enum ");
-        add_alias("union ");
-      }
-#endif
-      return *this;
+      return NGINReflectionStatus{NGINReflectionStatus_Ok, {nullptr, 0}};
     }
 
-    // Add a public data member as a Field; name optional and auto-derived if omitted.
-    template <auto MemberPtr>
-    TypeBuilder &Field(std::string_view name = {})
+    inline constexpr NGINReflectionStatus MakeStatus(NGINReflectionStatusCode code, const char *message) noexcept
     {
-      using MemberT = detail::MemberTypeT<MemberPtr>;
-      auto &reg = detail::GetRegistry();
-      detail::FieldDescriptor f{};
-      {
-        auto svName = name.empty() ? detail::MemberNameFromPretty<MemberPtr>() : name;
-        if (!svName.empty())
-        {
-          auto id = detail::InternNameId(reg.types[m_index].moduleId, svName);
-          f.nameId = id;
-          f.name = detail::NameFromId(id);
-        }
-      }
-      {
-        auto sv = NGIN::Meta::TypeName<MemberT>::qualifiedName;
-        f.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-      }
-      f.sizeBytes = sizeof(MemberT);
-      f.GetMut = &detail::FieldGetterMut<MemberPtr>;
-      f.GetConst = &detail::FieldGetterConst<MemberPtr>;
-      f.Load = &detail::FieldLoad<MemberPtr>;
-      f.Store = &detail::FieldStore<MemberPtr>;
-      reg.types[m_index].fields.PushBack(std::move(f));
-      // update Field index map
-      const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].fields.Size() - 1);
-      if (!reg.types[m_index].fields[newIdx].nameId.empty())
-        reg.types[m_index].fieldIndex.Insert(reg.types[m_index].fields[newIdx].nameId, newIdx);
-      return *this;
+      return NGINReflectionStatus{code, {message, message ? std::strlen(message) : 0u}};
     }
 
-    // Add a const/non-const member Method. Name required.
-    template <auto MemFn>
-    TypeBuilder &Method(std::string_view name);
-
-    // Register a static member function as a global function.
-    template <auto Fn>
-    TypeBuilder &StaticMethod(std::string_view name);
-
-    // Add a Property using getter and optional setter.
-    template <auto Getter>
-    TypeBuilder &Property(std::string_view name);
-
-    template <auto Getter, auto Setter>
-    TypeBuilder &Property(std::string_view name);
-
-    // Add an enum value (T must be an enum type).
-    TypeBuilder &EnumValue(std::string_view name, T value);
-
-    // Add a Constructor descriptor for T with parameter types A...
-    template <class... A>
-    TypeBuilder &Constructor();
-
-    // Register a base type and upcast hooks.
-    template <class BaseT>
-    TypeBuilder &Base();
-
-    // Register a base type with a custom downcast hook.
-    template <class BaseT, auto Downcast>
-    TypeBuilder &Base();
-
-    // Attach a typed Attribute (type-level)
-    TypeBuilder &Attribute(std::string_view key, const AttrValue &value)
+    inline NGINReflectionModuleIdentity ToAbiModuleIdentity(const ModuleIdentity &identity) noexcept
     {
-      auto &reg = detail::GetRegistry();
-      const auto moduleId = reg.types[m_index].moduleId;
-      auto k = detail::InternName(moduleId, key);
-      reg.types[m_index].attributes.PushBack(AttributeDesc{k, detail::InternAttrValue(moduleId, value)});
-      return *this;
+      return NGINReflectionModuleIdentity{
+          identity.moduleName.value,
+          identity.abiFamily,
+          identity.abiVersion,
+          0u,
+          identity.keyHash};
     }
 
-    // Attach Attribute to a specific Field by member pointer.
-    template <auto MemberPtr>
-    TypeBuilder &FieldAttribute(std::string_view key, const AttrValue &value)
+    inline NGINReflectionTypeIdentity ToAbiTypeIdentity(const TypeIdentity &identity) noexcept
     {
-      auto &reg = detail::GetRegistry();
-      const auto moduleId = reg.types[m_index].moduleId;
-      auto k = detail::InternName(moduleId, key);
-      auto v = detail::InternAttrValue(moduleId, value);
-      auto *fn = &detail::FieldGetterMut<MemberPtr>;
-      auto &fields = reg.types[m_index].fields;
-      for (auto i = NGIN::UIntSize{0}; i < fields.Size(); ++i)
+      return NGINReflectionTypeIdentity{
+          ToAbiModuleIdentity(identity.module),
+          identity.qualifiedName.value,
+          0u,
+          identity.signatureHash,
+          identity.keyHash};
+    }
+
+    template <class T>
+    [[nodiscard]] inline TypeIdentity SyntheticTypeIdentity(const ModuleIdentity &module)
+    {
+      const auto symbol = InternSymbol(NGIN::Meta::TypeName<std::remove_cvref_t<T>>::qualifiedName);
+      const auto signature = NGIN::Meta::GetTypeId<std::remove_cvref_t<T>>();
+      return TypeIdentity::Create(module, symbol, signature == 0 ? 1u : signature);
+    }
+
+    [[nodiscard]] inline ModuleIdentity RuntimeModuleIdentity()
+    {
+      return ModuleIdentity::Create(InternSymbol("NGIN.Reflection.Runtime"));
+    }
+
+    template <class T>
+    [[nodiscard]] inline TypeReference MakeTypeReference()
+    {
+      return MakeTypeReference(NGIN::Meta::TypeName<std::remove_cvref_t<T>>::qualifiedName);
+    }
+
+    template <class T>
+    [[nodiscard]] inline std::expected<T, const char *> ConvertScalarValue(const NGINReflectionValue &value)
+    {
+      using U = std::remove_cvref_t<T>;
+      if constexpr (std::is_same_v<U, bool>)
       {
-        if (fields[i].GetMut == reinterpret_cast<void *(*)(void *)>(fn))
-        {
-          fields[i].attributes.PushBack(AttributeDesc{k, v});
-          break;
-        }
+        if (value.kind != NGINReflectionValue_Bool)
+          return std::unexpected("expected bool");
+        return static_cast<bool>(value.boolValue != 0u);
       }
-      return *this;
-    }
-
-    // Attach Attribute to a specific Property by getter.
-    template <auto Getter>
-    TypeBuilder &PropertyAttribute(std::string_view key, const AttrValue &value)
-    {
-      auto &reg = detail::GetRegistry();
-      const auto moduleId = reg.types[m_index].moduleId;
-      auto k = detail::InternName(moduleId, key);
-      auto v = detail::InternAttrValue(moduleId, value);
-      auto *fn = &detail::PropertyGet<Getter>;
-      auto &props = reg.types[m_index].properties;
-      for (auto i = NGIN::UIntSize{0}; i < props.Size(); ++i)
+      else if constexpr (std::is_integral_v<U> && std::is_signed_v<U> && !std::is_same_v<U, bool>)
       {
-        if (props[i].Get == fn)
-        {
-          props[i].attributes.PushBack(AttributeDesc{k, v});
-          break;
-        }
+        if (value.kind == NGINReflectionValue_Int64)
+          return static_cast<U>(value.intValue);
+        if (value.kind == NGINReflectionValue_UInt64)
+          return static_cast<U>(value.uintValue);
+        return std::unexpected("expected signed integer");
       }
-      return *this;
-    }
-
-    // Attach Attribute to a specific Method by member function pointer.
-    template <auto MemFn>
-    TypeBuilder &MethodAttribute(std::string_view key, const AttrValue &value);
-
-    // No-op in Phase 1; present for API symmetry.
-    constexpr void Build() const noexcept {}
-
-  private:
-    NGIN::UInt32 m_index{0};
-  };
-
-  // ==== Method registration machinery ====
-  namespace detail
-  {
-    template <typename>
-    struct MethodTraits;
-
-    using NGIN::Reflection::detail::ConvertAny; // reuse shared conversion
-
-    template <class E>
-    inline std::expected<std::uint64_t, Error> EnumToUnsigned(const Any &value)
-    {
-      using Under = std::underlying_type_t<E>;
-      const auto want = TypeIdOf<E>();
-      if (value.GetTypeId() != want)
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
-      auto e = value.template Cast<E>();
-      if constexpr (std::is_signed_v<Under>)
+      else if constexpr (std::is_integral_v<U> && std::is_unsigned_v<U>)
       {
-        using Uns = std::make_unsigned_t<Under>;
-        return static_cast<std::uint64_t>(static_cast<Uns>(static_cast<Under>(e)));
+        if (value.kind == NGINReflectionValue_UInt64)
+          return static_cast<U>(value.uintValue);
+        if (value.kind == NGINReflectionValue_Int64)
+          return static_cast<U>(value.intValue);
+        return std::unexpected("expected unsigned integer");
+      }
+      else if constexpr (std::is_floating_point_v<U>)
+      {
+        if (value.kind == NGINReflectionValue_Float64)
+          return static_cast<U>(value.floatValue);
+        if (value.kind == NGINReflectionValue_Int64)
+          return static_cast<U>(value.intValue);
+        if (value.kind == NGINReflectionValue_UInt64)
+          return static_cast<U>(value.uintValue);
+        return std::unexpected("expected floating-point value");
+      }
+      else if constexpr (std::is_enum_v<U>)
+      {
+        using Under = std::underlying_type_t<U>;
+        auto converted = ConvertScalarValue<Under>(value);
+        if (!converted.has_value())
+          return std::unexpected(converted.error());
+        return static_cast<U>(*converted);
+      }
+      else if constexpr (std::is_same_v<U, std::string>)
+      {
+        if (value.kind != NGINReflectionValue_String)
+          return std::unexpected("expected string");
+        return std::string(value.stringValue.data, static_cast<std::size_t>(value.stringValue.size));
+      }
+      else if constexpr (std::is_same_v<U, std::string_view>)
+      {
+        if (value.kind != NGINReflectionValue_String)
+          return std::unexpected("expected string");
+        return std::string_view(value.stringValue.data, static_cast<std::size_t>(value.stringValue.size));
       }
       else
       {
-        return static_cast<std::uint64_t>(static_cast<Under>(e));
+        return std::unexpected("unsupported argument type");
       }
     }
 
-    template <class E>
-    inline std::expected<std::int64_t, Error> EnumToSigned(const Any &value)
+    template <class T>
+    [[nodiscard]] inline std::expected<std::remove_cvref_t<T>, const char *> ConvertValue(const NGINReflectionValue &value)
     {
-      using Under = std::underlying_type_t<E>;
-      const auto want = TypeIdOf<E>();
-      if (value.GetTypeId() != want)
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "type-id mismatch"});
-      auto e = value.template Cast<E>();
-      if constexpr (std::is_signed_v<Under>)
+      using U = std::remove_cvref_t<T>;
+      if constexpr (std::is_reference_v<T>)
       {
-        return static_cast<std::int64_t>(static_cast<Under>(e));
+        auto converted = ConvertScalarValue<U>(value);
+        if (!converted.has_value())
+          return std::unexpected(converted.error());
+        return *converted;
       }
       else
       {
-        using Uns = std::make_unsigned_t<Under>;
-        return static_cast<std::int64_t>(static_cast<Uns>(static_cast<Under>(e)));
+        return ConvertScalarValue<U>(value);
       }
     }
 
-    template <class Derived, class Base>
-    inline void *Upcast(void *obj)
+    struct LocalSharedBoxHeader
     {
-      return static_cast<Base *>(static_cast<Derived *>(obj));
+      std::atomic<std::uint32_t> refs{1};
+    };
+
+    template <class T>
+    struct LocalSharedBox final : LocalSharedBoxHeader
+    {
+      template <class... Args>
+      explicit LocalSharedBox(Args &&...args)
+          : object(std::forward<Args>(args)...)
+      {
+      }
+
+      T object;
+    };
+
+    inline void BorrowRetain(NGINReflectionInstanceHandle *) {}
+    inline void BorrowRelease(NGINReflectionInstanceHandle *) {}
+    inline const void *BorrowGetConst(const NGINReflectionInstanceHandle *instance) { return instance ? instance->object : nullptr; }
+    inline void *BorrowGetMut(const NGINReflectionInstanceHandle *instance) { return instance ? instance->object : nullptr; }
+
+    inline const NGINReflectionInstanceVTable *BorrowedInstanceVTable() noexcept
+    {
+      static const NGINReflectionInstanceVTable table{
+          &BorrowRetain,
+          &BorrowRelease,
+          &BorrowGetConst,
+          &BorrowGetMut};
+      return &table;
     }
 
-    template <class Derived, class Base>
-    inline const void *UpcastConst(const void *obj)
+    template <class T>
+    void OwnedRetain(NGINReflectionInstanceHandle *instance)
     {
-      return static_cast<const Base *>(static_cast<const Derived *>(obj));
+      if (!instance || !instance->userData)
+        return;
+      static_cast<LocalSharedBoxHeader *>(instance->userData)->refs.fetch_add(1u, std::memory_order_relaxed);
     }
+
+    template <class T>
+    void OwnedRelease(NGINReflectionInstanceHandle *instance)
+    {
+      if (!instance || !instance->userData)
+        return;
+      auto *header = static_cast<LocalSharedBoxHeader *>(instance->userData);
+      if (header->refs.fetch_sub(1u, std::memory_order_acq_rel) == 1u)
+        delete static_cast<LocalSharedBox<T> *>(instance->userData);
+      instance->object = nullptr;
+      instance->userData = nullptr;
+    }
+
+    template <class T>
+    const NGINReflectionInstanceVTable *OwnedInstanceVTable() noexcept
+    {
+      static const NGINReflectionInstanceVTable table{
+          &OwnedRetain<T>,
+          &OwnedRelease<T>,
+          &BorrowGetConst,
+          &BorrowGetMut};
+      return &table;
+    }
+
+    template <class T>
+    [[nodiscard]] inline NGINReflectionInstanceHandle MakeBorrowedHandle(T *instance,
+                                                                         const TypeIdentity &identity) noexcept
+    {
+      return NGINReflectionInstanceHandle{
+          instance,
+          nullptr,
+          BorrowedInstanceVTable(),
+          ToAbiTypeIdentity(identity)};
+    }
+
+    template <class BaseT, class DerivedT>
+    [[nodiscard]] inline NGINReflectionStatus UpcastThunk(const NGINReflectionInstanceHandle *instance,
+                                                          NGINReflectionInstanceHandle *outInstance)
+    {
+      if (!instance || !outInstance || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid upcast");
+      auto *derived = static_cast<DerivedT *>(instance->vtable->getMut(instance));
+      if (!derived)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      *outInstance = *instance;
+      if (outInstance->vtable && outInstance->vtable->retain)
+        outInstance->vtable->retain(outInstance);
+      outInstance->object = static_cast<BaseT *>(derived);
+      const auto module = ModuleIdentity::Create(SymbolId{instance->identity.module.moduleNameSymbol},
+                                                 instance->identity.module.abiFamily,
+                                                 instance->identity.module.abiVersion);
+      outInstance->identity = ToAbiTypeIdentity(SyntheticTypeIdentity<BaseT>(module));
+      return OkStatus();
+    }
+
+    template <class DerivedT, class BaseT>
+    [[nodiscard]] inline NGINReflectionStatus DowncastThunk(const NGINReflectionInstanceHandle *instance,
+                                                            NGINReflectionInstanceHandle *outInstance)
+    {
+      if (!instance || !outInstance || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid downcast");
+      auto *base = static_cast<BaseT *>(instance->vtable->getMut(instance));
+      if (!base)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      *outInstance = *instance;
+      if (outInstance->vtable && outInstance->vtable->retain)
+        outInstance->vtable->retain(outInstance);
+      outInstance->object = static_cast<DerivedT *>(base);
+      const auto module = ModuleIdentity::Create(SymbolId{instance->identity.module.moduleNameSymbol},
+                                                 instance->identity.module.abiFamily,
+                                                 instance->identity.module.abiVersion);
+      outInstance->identity = ToAbiTypeIdentity(SyntheticTypeIdentity<DerivedT>(module));
+      return OkStatus();
+    }
+
+    template <class DerivedT, class BaseT, auto DowncastFn>
+    [[nodiscard]] inline NGINReflectionStatus CustomDowncastThunk(const NGINReflectionInstanceHandle *instance,
+                                                                  NGINReflectionInstanceHandle *outInstance)
+    {
+      if (!instance || !outInstance || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid downcast");
+      auto *base = static_cast<BaseT *>(instance->vtable->getMut(instance));
+      if (!base)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      auto *derived = DowncastFn(base);
+      if (!derived)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "downcast failed");
+      *outInstance = *instance;
+      if (outInstance->vtable && outInstance->vtable->retain)
+        outInstance->vtable->retain(outInstance);
+      outInstance->object = derived;
+      const auto module = ModuleIdentity::Create(SymbolId{instance->identity.module.moduleNameSymbol},
+                                                 instance->identity.module.abiFamily,
+                                                 instance->identity.module.abiVersion);
+      outInstance->identity = ToAbiTypeIdentity(SyntheticTypeIdentity<DerivedT>(module));
+      return OkStatus();
+    }
+
+    template <class T>
+    [[nodiscard]] inline NGINReflectionInstanceHandle MakeOwnedHandle(T value,
+                                                                      const TypeIdentity &identity)
+    {
+      auto *box = new LocalSharedBox<std::remove_cvref_t<T>>(std::move(value));
+      return NGINReflectionInstanceHandle{
+          &box->object,
+          box,
+          OwnedInstanceVTable<std::remove_cvref_t<T>>(),
+          ToAbiTypeIdentity(identity)};
+    }
+
+    inline void ReleaseOwnedString(NGINReflectionValue *value)
+    {
+      if (!value || !value->releaseUserData)
+        return;
+      delete static_cast<std::string *>(value->releaseUserData);
+      value->release = nullptr;
+      value->releaseUserData = nullptr;
+      value->kind = NGINReflectionValue_Empty;
+    }
+
+    template <class T>
+    [[nodiscard]] inline NGINReflectionValue ToAbiValue(const ModuleIdentity &moduleIdentity, T &&value)
+    {
+      using U = std::remove_cvref_t<T>;
+      if constexpr (std::is_same_v<U, bool>)
+      {
+        NGINReflectionValue out{};
+        out.kind = NGINReflectionValue_Bool;
+        out.boolValue = value ? 1u : 0u;
+        return out;
+      }
+      else if constexpr (std::is_integral_v<U> && std::is_signed_v<U> && !std::is_same_v<U, bool>)
+      {
+        NGINReflectionValue out{};
+        out.kind = NGINReflectionValue_Int64;
+        out.intValue = static_cast<std::int64_t>(value);
+        return out;
+      }
+      else if constexpr (std::is_integral_v<U> && std::is_unsigned_v<U>)
+      {
+        NGINReflectionValue out{};
+        out.kind = NGINReflectionValue_UInt64;
+        out.uintValue = static_cast<std::uint64_t>(value);
+        return out;
+      }
+      else if constexpr (std::is_floating_point_v<U>)
+      {
+        NGINReflectionValue out{};
+        out.kind = NGINReflectionValue_Float64;
+        out.floatValue = static_cast<double>(value);
+        return out;
+      }
+      else if constexpr (std::is_enum_v<U>)
+      {
+        using Under = std::underlying_type_t<U>;
+        return ToAbiValue(moduleIdentity, static_cast<Under>(value));
+      }
+      else if constexpr (std::is_same_v<U, std::string> || std::is_same_v<U, std::string_view>)
+      {
+        auto *owned = new std::string(value);
+        NGINReflectionValue out{};
+        out.kind = NGINReflectionValue_String;
+        out.stringValue = NGINReflectionStringView{owned->data(), static_cast<std::uint64_t>(owned->size())};
+        out.release = &ReleaseOwnedString;
+        out.releaseUserData = owned;
+        return out;
+      }
+      else if constexpr (std::is_same_v<U, const char *>)
+      {
+        std::string_view view = value ? std::string_view{value} : std::string_view{};
+        return ToAbiValue(moduleIdentity, view);
+      }
+      else
+      {
+        NGINReflectionValue out{};
+        out.kind = NGINReflectionValue_Instance;
+        out.instanceValue = MakeOwnedHandle<U>(std::forward<T>(value), SyntheticTypeIdentity<U>(moduleIdentity));
+        return out;
+      }
+    }
+
+    template <class T>
+    struct MemberPointerTraits;
+
+    template <class C, class M>
+    struct MemberPointerTraits<M C::*>
+    {
+      using Class = C;
+      using Member = M;
+    };
 
     template <class>
-    struct DowncastTraits;
-
-    template <class D, class B>
-    struct DowncastTraits<D *(*)(B *)>
-    {
-      using Derived = D;
-      using Base = B;
-      static constexpr bool IsConst = false;
-    };
-
-    template <class D, class B>
-    struct DowncastTraits<const D *(*)(const B *)>
-    {
-      using Derived = D;
-      using Base = B;
-      static constexpr bool IsConst = true;
-    };
-
-    template <auto Fn>
-    inline void *Downcast(void *obj)
-    {
-      using Traits = DowncastTraits<decltype(Fn)>;
-      auto *b = static_cast<typename Traits::Base *>(obj);
-      return static_cast<void *>(Fn(b));
-    }
-
-    template <auto Fn>
-    inline const void *DowncastConst(const void *obj)
-    {
-      using Traits = DowncastTraits<decltype(Fn)>;
-      auto *b = static_cast<const typename Traits::Base *>(obj);
-      return static_cast<const void *>(Fn(b));
-    }
-
-    template <typename>
-    struct GetterTraits;
-
-    template <class C, class R>
-    struct GetterTraits<R (C::*)()>
-    {
-      using Class = C;
-      using Ret = R;
-      static constexpr bool IsConst = false;
-      static constexpr bool IsMember = true;
-    };
-
-    template <class C, class R>
-    struct GetterTraits<R (C::*)() const>
-    {
-      using Class = C;
-      using Ret = R;
-      static constexpr bool IsConst = true;
-      static constexpr bool IsMember = true;
-    };
-
-    template <class C, class R>
-    struct GetterTraits<R (*)(C &)>
-    {
-      using Class = C;
-      using Ret = R;
-      static constexpr bool IsConst = false;
-      static constexpr bool IsMember = false;
-    };
-
-    template <class C, class R>
-    struct GetterTraits<R (*)(const C &)>
-    {
-      using Class = C;
-      using Ret = R;
-      static constexpr bool IsConst = true;
-      static constexpr bool IsMember = false;
-    };
-
-    template <typename>
-    struct SetterTraits;
-
-    template <class C, class A>
-    struct SetterTraits<void (C::*)(A)>
-    {
-      using Class = C;
-      using Arg = A;
-      static constexpr bool IsMember = true;
-    };
-
-    template <class C, class A>
-    struct SetterTraits<void (C::*)(A) const>
-    {
-      using Class = C;
-      using Arg = A;
-      static constexpr bool IsMember = true;
-    };
-
-    template <class C, class A>
-    struct SetterTraits<void (*)(C &, A)>
-    {
-      using Class = C;
-      using Arg = A;
-      static constexpr bool IsMember = false;
-    };
-
-    template <auto Getter>
-    inline Any PropertyGet(const void *obj)
-    {
-      using Traits = GetterTraits<decltype(Getter)>;
-      using C = typename Traits::Class;
-      if constexpr (Traits::IsMember)
-      {
-        if constexpr (Traits::IsConst)
-        {
-          auto *c = static_cast<const C *>(obj);
-          return Any{(c->*Getter)()};
-        }
-        else
-        {
-          auto *c = const_cast<C *>(static_cast<const C *>(obj));
-          return Any{(c->*Getter)()};
-        }
-      }
-      else
-      {
-        if constexpr (Traits::IsConst)
-        {
-          const auto &c = *static_cast<const C *>(obj);
-          return Any{Getter(c)};
-        }
-        else
-        {
-          auto &c = *const_cast<C *>(static_cast<const C *>(obj));
-          return Any{Getter(c)};
-        }
-      }
-    }
-
-    template <auto Setter>
-    static std::expected<void, Error> PropertySet(void *obj, const Any &value)
-    {
-      using Traits = SetterTraits<decltype(Setter)>;
-      using C = typename Traits::Class;
-      using Arg = std::remove_cv_t<std::remove_reference_t<typename Traits::Arg>>;
-      auto conv = ConvertAny<Arg>(value);
-      if (!conv.has_value())
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
-      if constexpr (Traits::IsMember)
-      {
-        auto *c = static_cast<C *>(obj);
-        (c->*Setter)(conv.value());
-      }
-      else
-      {
-        auto &c = *static_cast<C *>(obj);
-        Setter(c, conv.value());
-      }
-      return {};
-    }
-
-    template <auto Getter>
-    static std::expected<void, Error> PropertySetFromGetter(void *obj, const Any &value)
-    {
-      using Traits = GetterTraits<decltype(Getter)>;
-      using Ret = typename Traits::Ret;
-      using Arg = std::remove_cv_t<std::remove_reference_t<Ret>>;
-      static_assert(std::is_lvalue_reference_v<Ret> && !std::is_const_v<std::remove_reference_t<Ret>>,
-                    "Getter must return non-const lvalue reference to enable implicit setter");
-      auto conv = ConvertAny<Arg>(value);
-      if (!conv.has_value())
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
-      if constexpr (Traits::IsMember)
-      {
-        auto *c = static_cast<typename Traits::Class *>(obj);
-        (c->*Getter)() = conv.value();
-      }
-      else
-      {
-        auto &c = *static_cast<typename Traits::Class *>(obj);
-        Getter(c) = conv.value();
-      }
-      return {};
-    }
-
-    template <std::size_t I, class Tuple>
-    inline NGIN::UInt64 ParamTypeId()
-    {
-      using Arg = std::remove_cv_t<std::remove_reference_t<std::tuple_element_t<I, Tuple>>>;
-      auto psv = NGIN::Meta::TypeName<Arg>::qualifiedName;
-      return NGIN::Hashing::FNV1a64(psv.data(), psv.size());
-    }
-
-    template <class Tuple, std::size_t... I>
-    inline void PushParamIds(MethodDescriptor &m, std::index_sequence<I...>)
-    {
-      (m.paramTypeIds.PushBack(ParamTypeId<I, Tuple>()), ...);
-    }
-
-    template <class Tuple, std::size_t... I>
-    inline void PushCtorParamIds(NGIN::Containers::Vector<NGIN::UInt64> &v, std::index_sequence<I...>)
-    {
-      (v.PushBack(ParamTypeId<I, Tuple>()), ...);
-    }
+    struct MethodTraits;
 
     template <class C, class R, class... A>
     struct MethodTraits<R (C::*)(A...)>
     {
       using Class = C;
-      using Ret = R;
-      static constexpr bool IsConst = false;
-      static constexpr NGIN::UIntSize Arity = sizeof...(A);
+      using Return = R;
       using Args = std::tuple<A...>;
-      template <auto MemFn>
-      static std::expected<Any, Error> Invoke(void *obj, const Any *args, NGIN::UIntSize count)
-      {
-        if (count != Arity)
-          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        auto *c = static_cast<C *>(obj);
-        return Call<MemFn>(c, args, std::index_sequence_for<A...>{});
-      }
-
-      template <auto MemFn>
-      static std::expected<Any, Error> InvokeExact(void *obj, const Any *args, NGIN::UIntSize count)
-      {
-        if (count != Arity)
-          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        auto *c = static_cast<C *>(obj);
-        return CallExact<MemFn>(c, args, std::index_sequence_for<A...>{});
-      }
-
-    private:
-      template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> Call(C *c, const Any *args, std::index_sequence<I...>)
-      {
-        if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
-        {
-          if constexpr (std::is_void_v<R>)
-          {
-            (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any::MakeVoid();
-          }
-          else
-          {
-            auto r = (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any{std::move(r)};
-          }
-        }
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
-      }
-
-      template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> CallExact(C *c, const Any *args, std::index_sequence<I...>)
-      {
-        if ((ArgMatchesExact<A>(args[I]) && ...))
-        {
-          if constexpr (std::is_void_v<R>)
-          {
-            (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-            return Any::MakeVoid();
-          }
-          else
-          {
-            auto r = (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-            return Any{std::move(r)};
-          }
-        }
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
-      }
+      static constexpr bool IsConst = false;
     };
 
     template <class C, class R, class... A>
     struct MethodTraits<R (C::*)(A...) const>
     {
       using Class = C;
-      using Ret = R;
-      static constexpr bool IsConst = true;
-      static constexpr NGIN::UIntSize Arity = sizeof...(A);
+      using Return = R;
       using Args = std::tuple<A...>;
-      template <auto MemFn>
-      static std::expected<Any, Error> Invoke(void *obj, const Any *args, NGIN::UIntSize count)
-      {
-        if (count != Arity)
-          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        auto *c = static_cast<const C *>(obj);
-        return Call<MemFn>(c, args, std::index_sequence_for<A...>{});
-      }
-
-      template <auto MemFn>
-      static std::expected<Any, Error> InvokeExact(void *obj, const Any *args, NGIN::UIntSize count)
-      {
-        if (count != Arity)
-          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        auto *c = static_cast<const C *>(obj);
-        return CallExact<MemFn>(c, args, std::index_sequence_for<A...>{});
-      }
-
-    private:
-      template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> Call(const C *c, const Any *args, std::index_sequence<I...>)
-      {
-        if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
-        {
-          if constexpr (std::is_void_v<R>)
-          {
-            (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any::MakeVoid();
-          }
-          else
-          {
-            auto r = (c->*MemFn)(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any{std::move(r)};
-          }
-        }
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
-      }
-
-      template <auto MemFn, std::size_t... I>
-      static std::expected<Any, Error> CallExact(const C *c, const Any *args, std::index_sequence<I...>)
-      {
-        if ((ArgMatchesExact<A>(args[I]) && ...))
-        {
-          if constexpr (std::is_void_v<R>)
-          {
-            (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-            return Any::MakeVoid();
-          }
-          else
-          {
-            auto r = (c->*MemFn)(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-            return Any{std::move(r)};
-          }
-        }
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
-      }
+      static constexpr bool IsConst = true;
     };
 
     template <class>
@@ -606,378 +398,490 @@ namespace NGIN::Reflection
     template <class R, class... A>
     struct FunctionTraits<R (*)(A...)>
     {
-      using Ret = R;
-      static constexpr NGIN::UIntSize Arity = sizeof...(A);
+      using Return = R;
       using Args = std::tuple<A...>;
-
-      template <auto Fn>
-      static std::expected<Any, Error> Invoke(const Any *args, NGIN::UIntSize count)
-      {
-        if (count != Arity)
-          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        return Call<Fn>(args, std::index_sequence_for<A...>{});
-      }
-
-      template <auto Fn>
-      static std::expected<Any, Error> InvokeExact(const Any *args, NGIN::UIntSize count)
-      {
-        if (count != Arity)
-          return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-        return CallExact<Fn>(args, std::index_sequence_for<A...>{});
-      }
-
-    private:
-      template <auto Fn, std::size_t... I>
-      static std::expected<Any, Error> Call(const Any *args, std::index_sequence<I...>)
-      {
-        if (((ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).has_value()) && ...))
-        {
-          if constexpr (std::is_void_v<R>)
-          {
-            Fn(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any::MakeVoid();
-          }
-          else
-          {
-            auto r = Fn(ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[I]).value()...);
-            return Any{std::move(r)};
-          }
-        }
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
-      }
-
-      template <auto Fn, std::size_t... I>
-      static std::expected<Any, Error> CallExact(const Any *args, std::index_sequence<I...>)
-      {
-        if ((ArgMatchesExact<A>(args[I]) && ...))
-        {
-          if constexpr (std::is_void_v<R>)
-          {
-            Fn(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-            return Any::MakeVoid();
-          }
-          else
-          {
-            auto r = Fn(args[I].template Cast<std::remove_cv_t<std::remove_reference_t<A>>>()...);
-            return Any{std::move(r)};
-          }
-        }
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument type mismatch"});
-      }
     };
 
-    template <auto Fn>
-    inline Function RegisterFunctionUnlocked(std::string_view name, ModuleId moduleId)
+    template <class Tuple, std::size_t... I>
+    inline void FillTypeRefs(std::vector<TypeReference> &out, std::index_sequence<I...>)
     {
-      static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "RegisterFunction requires function pointer");
-      using Traits = detail::FunctionTraits<decltype(Fn)>;
-      auto &reg = detail::GetRegistry();
-      detail::FunctionDescriptor f{};
-      auto nameId = detail::InternNameId(moduleId, name);
-      f.name = detail::NameFromId(nameId);
-      f.nameId = nameId;
-      if constexpr (std::is_void_v<typename Traits::Ret>)
+      (out.push_back(MakeTypeReference<std::tuple_element_t<I, Tuple>>()), ...);
+    }
+
+    inline TypeRecord &GetTypeRecord(TypeBuildAnchor anchor)
+    {
+      return anchor.module->types[anchor.typeIndex];
+    }
+
+    template <class T>
+    [[nodiscard]] inline NGINReflectionStatus ReadField(const NGINReflectionInstanceHandle *instance,
+                                                        NGINReflectionValue *outValue,
+                                                        T *fieldPtr,
+                                                        const ModuleIdentity &moduleIdentity)
+    {
+      if (!instance || !outValue || !fieldPtr)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid field read");
+      *outValue = ToAbiValue(moduleIdentity, *fieldPtr);
+      return OkStatus();
+    }
+
+    template <auto MemberPtr>
+    NGINReflectionStatus FieldReadThunk(const NGINReflectionInstanceHandle *instance,
+                                        NGINReflectionValue *outValue)
+    {
+      using Traits = MemberPointerTraits<decltype(MemberPtr)>;
+      using Class = typename Traits::Class;
+      using Member = typename Traits::Member;
+
+      if (!instance || !outValue || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid field read");
+      auto *self = static_cast<const Class *>(instance->vtable->getConst(instance));
+      if (!self)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      const auto module = ModuleIdentity::Create(SymbolId{instance->identity.module.moduleNameSymbol},
+                                                 instance->identity.module.abiFamily,
+                                                 instance->identity.module.abiVersion);
+      *outValue = ToAbiValue(module, self->*MemberPtr);
+      return OkStatus();
+    }
+
+    template <auto MemberPtr>
+    NGINReflectionStatus FieldWriteThunk(NGINReflectionInstanceHandle *instance,
+                                         const NGINReflectionValue *value)
+    {
+      using Traits = MemberPointerTraits<decltype(MemberPtr)>;
+      using Class = typename Traits::Class;
+      using Member = typename Traits::Member;
+
+      if (!instance || !value || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid field write");
+      auto *self = static_cast<Class *>(instance->vtable->getMut(instance));
+      if (!self)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      auto converted = ConvertValue<Member>(*value);
+      if (!converted.has_value())
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, converted.error());
+      self->*MemberPtr = *converted;
+      return OkStatus();
+    }
+
+    template <auto Getter>
+    NGINReflectionStatus PropertyReadThunk(const NGINReflectionInstanceHandle *instance,
+                                           NGINReflectionValue *outValue)
+    {
+      using Traits = MethodTraits<decltype(Getter)>;
+      using Class = typename Traits::Class;
+
+      if (!instance || !outValue || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid property read");
+      auto *self = static_cast<const Class *>(instance->vtable->getConst(instance));
+      if (!self)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      const auto module = ModuleIdentity::Create(SymbolId{instance->identity.module.moduleNameSymbol},
+                                                 instance->identity.module.abiFamily,
+                                                 instance->identity.module.abiVersion);
+      *outValue = ToAbiValue(module, (self->*Getter)());
+      return OkStatus();
+    }
+
+    template <auto Setter>
+    NGINReflectionStatus PropertyWriteThunk(NGINReflectionInstanceHandle *instance,
+                                            const NGINReflectionValue *value)
+    {
+      using Traits = MethodTraits<decltype(Setter)>;
+      using Class = typename Traits::Class;
+      using Arg = std::tuple_element_t<0, typename Traits::Args>;
+
+      if (!instance || !value || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid property write");
+      auto *self = static_cast<Class *>(instance->vtable->getMut(instance));
+      if (!self)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      auto converted = ConvertValue<Arg>(*value);
+      if (!converted.has_value())
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, converted.error());
+      (self->*Setter)(*converted);
+      return OkStatus();
+    }
+
+    template <auto Getter>
+    NGINReflectionStatus PropertyWriteByReferenceThunk(NGINReflectionInstanceHandle *instance,
+                                                       const NGINReflectionValue *value)
+    {
+      using Traits = MethodTraits<decltype(Getter)>;
+      using Class = typename Traits::Class;
+      using Return = typename Traits::Return;
+      using ValueType = std::remove_reference_t<Return>;
+
+      if (!instance || !value || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid property write");
+      auto *self = static_cast<Class *>(instance->vtable->getMut(instance));
+      if (!self)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing object");
+      auto converted = ConvertValue<ValueType>(*value);
+      if (!converted.has_value())
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, converted.error());
+      (self->*Getter)() = *converted;
+      return OkStatus();
+    }
+
+    template <class Class, class Return, class Tuple, std::size_t... I>
+    [[nodiscard]] inline NGINReflectionStatus InvokeMethodChecked(const NGINReflectionInstanceHandle *instance,
+                                                                  const NGINReflectionValue *arguments,
+                                                                  std::uint64_t argumentCount,
+                                                                  NGINReflectionValue *outValue,
+                                                                  Return (Class::*fn)(std::tuple_element_t<I, Tuple>...),
+                                                                  std::index_sequence<I...>)
+    {
+      if constexpr (std::is_void_v<Return>)
       {
-        f.returnTypeId = 0;
+        (static_cast<Class *>(instance->vtable->getMut(instance))->*fn)(*ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I])...);
+        if (outValue)
+          *outValue = {};
+        return OkStatus();
       }
       else
       {
-        auto rsv = NGIN::Meta::TypeName<typename Traits::Ret>::qualifiedName;
-        f.returnTypeId = NGIN::Hashing::FNV1a64(rsv.data(), rsv.size());
+        const auto module = ModuleIdentity::Create(SymbolId{instance->identity.module.moduleNameSymbol},
+                                                   instance->identity.module.abiFamily,
+                                                   instance->identity.module.abiVersion);
+        auto result = (static_cast<Class *>(instance->vtable->getMut(instance))->*fn)(*ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I])...);
+        if (outValue)
+          *outValue = ToAbiValue(module, std::move(result));
+        return OkStatus();
       }
-      if constexpr (Traits::Arity > 0)
+    }
+
+    template <class Class, class Return, class Tuple, std::size_t... I>
+    [[nodiscard]] inline NGINReflectionStatus InvokeConstMethodChecked(const NGINReflectionInstanceHandle *instance,
+                                                                       const NGINReflectionValue *arguments,
+                                                                       std::uint64_t argumentCount,
+                                                                       NGINReflectionValue *outValue,
+                                                                       Return (Class::*fn)(std::tuple_element_t<I, Tuple>...) const,
+                                                                       std::index_sequence<I...>)
+    {
+      if constexpr (std::is_void_v<Return>)
       {
-        using Tuple = typename Traits::Args;
-        detail::PushCtorParamIds<Tuple>(f.paramTypeIds, std::make_index_sequence<Traits::Arity>{});
-      }
-      f.Invoke = &Traits::template Invoke<Fn>;
-      f.InvokeExact = &Traits::template InvokeExact<Fn>;
-      f.moduleId = moduleId;
-      f.alive = true;
-      reg.functions.PushBack(std::move(f));
-      const auto newIndex = static_cast<NGIN::UInt32>(reg.functions.Size() - 1);
-      auto *vecPtr = reg.functionOverloads.GetPtr(reg.functions[newIndex].nameId);
-      if (!vecPtr)
-      {
-        NGIN::Containers::Vector<NGIN::UInt32> v;
-        v.PushBack(newIndex);
-        reg.functionOverloads.Insert(reg.functions[newIndex].nameId, std::move(v));
+        (static_cast<const Class *>(instance->vtable->getConst(instance))->*fn)(*ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I])...);
+        if (outValue)
+          *outValue = {};
+        return OkStatus();
       }
       else
       {
-        vecPtr->PushBack(newIndex);
+        const auto module = ModuleIdentity::Create(SymbolId{instance->identity.module.moduleNameSymbol},
+                                                   instance->identity.module.abiFamily,
+                                                   instance->identity.module.abiVersion);
+        auto result = (static_cast<const Class *>(instance->vtable->getConst(instance))->*fn)(*ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I])...);
+        if (outValue)
+          *outValue = ToAbiValue(module, std::move(result));
+        return OkStatus();
       }
-      return Function{FunctionHandle{newIndex}};
+    }
+
+    template <auto MethodPtr, class Tuple, std::size_t... I>
+    [[nodiscard]] inline bool ValidateArgs(const NGINReflectionValue *arguments,
+                                           std::uint64_t argumentCount,
+                                           std::index_sequence<I...>)
+    {
+      if (argumentCount != sizeof...(I))
+        return false;
+      bool valid = true;
+      (((void)(valid = valid && ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I]).has_value())), ...);
+      return valid;
+    }
+
+    template <auto MethodPtr>
+    NGINReflectionStatus MethodInvokeThunk(const NGINReflectionInstanceHandle *instance,
+                                           const NGINReflectionValue *arguments,
+                                           std::uint64_t argumentCount,
+                                           NGINReflectionValue *outValue)
+    {
+      using Traits = MethodTraits<decltype(MethodPtr)>;
+      using Class = typename Traits::Class;
+      using Return = typename Traits::Return;
+      using ArgsTuple = typename Traits::Args;
+      constexpr auto N = std::tuple_size_v<ArgsTuple>;
+
+      if (!instance || !instance->vtable)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid instance");
+      if (!ValidateArgs<MethodPtr, ArgsTuple>(arguments, argumentCount, std::make_index_sequence<N>{}))
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "argument mismatch");
+
+      if constexpr (Traits::IsConst)
+        return InvokeConstMethodChecked<Class, Return, ArgsTuple>(instance, arguments, argumentCount, outValue, MethodPtr, std::make_index_sequence<N>{});
+      else
+        return InvokeMethodChecked<Class, Return, ArgsTuple>(instance, arguments, argumentCount, outValue, MethodPtr, std::make_index_sequence<N>{});
+    }
+
+    template <class T, class Tuple, std::size_t... I>
+    NGINReflectionStatus ConstructorInvokeThunk(const NGINReflectionValue *arguments,
+                                                std::uint64_t argumentCount,
+                                                NGINReflectionInstanceHandle *outInstance,
+                                                std::index_sequence<I...>)
+    {
+      if (!outInstance)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "missing instance output");
+      if (argumentCount != sizeof...(I))
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "constructor arity mismatch");
+      bool valid = true;
+      (((void)(valid = valid && ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I]).has_value())), ...);
+      if (!valid)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "constructor argument mismatch");
+
+      const auto identity = SyntheticTypeIdentity<T>(RuntimeModuleIdentity());
+      *outInstance = MakeOwnedHandle<T>(
+          T{*ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I])...},
+          identity);
+      return OkStatus();
+    }
+
+    template <class T, class... Args>
+    NGINReflectionStatus ConstructorThunk(const NGINReflectionValue *arguments,
+                                          std::uint64_t argumentCount,
+                                          NGINReflectionInstanceHandle *outInstance)
+    {
+      return ConstructorInvokeThunk<T, std::tuple<Args...>>(arguments, argumentCount, outInstance, std::index_sequence_for<Args...>{});
+    }
+
+    template <class Return, class Tuple, std::size_t... I>
+    NGINReflectionStatus FunctionInvokeChecked(const ModuleIdentity &moduleIdentity,
+                                               const NGINReflectionValue *arguments,
+                                               std::uint64_t argumentCount,
+                                               NGINReflectionValue *outValue,
+                                               Return (*fn)(std::tuple_element_t<I, Tuple>...),
+                                               std::index_sequence<I...>)
+    {
+      if constexpr (std::is_void_v<Return>)
+      {
+        fn(*ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I])...);
+        if (outValue)
+          *outValue = {};
+        return OkStatus();
+      }
+      else
+      {
+        if (outValue)
+          *outValue = ToAbiValue(moduleIdentity, fn(*ConvertValue<std::tuple_element_t<I, Tuple>>(arguments[I])...));
+        return OkStatus();
+      }
+    }
+
+    template <auto FunctionPtr>
+    NGINReflectionStatus FunctionInvokeThunk(const NGINReflectionValue *arguments,
+                                             std::uint64_t argumentCount,
+                                             NGINReflectionValue *outValue)
+    {
+      using Traits = FunctionTraits<decltype(FunctionPtr)>;
+      using Return = typename Traits::Return;
+      using ArgsTuple = typename Traits::Args;
+      constexpr auto N = std::tuple_size_v<ArgsTuple>;
+
+      if (argumentCount != N)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "function arity mismatch");
+      bool valid = true;
+      [&]<std::size_t... I>(std::index_sequence<I...>) {
+        (((void)(valid = valid && ConvertValue<std::tuple_element_t<I, ArgsTuple>>(arguments[I]).has_value())), ...);
+      }(std::make_index_sequence<N>{});
+      if (!valid)
+        return MakeStatus(NGINReflectionStatus_InvalidArgument, "function argument mismatch");
+
+      return FunctionInvokeChecked<Return, ArgsTuple>(RuntimeModuleIdentity(),
+                                                      arguments,
+                                                      argumentCount,
+                                                      outValue,
+                                                      FunctionPtr,
+                                                      std::make_index_sequence<N>{});
     }
   } // namespace detail
 
   template <class T>
-  template <auto MemFn>
-  inline TypeBuilder<T> &TypeBuilder<T>::Method(std::string_view name)
+  class TypeBuilder
   {
-    using Traits = detail::MethodTraits<decltype(MemFn)>;
-    static_assert(std::is_same_v<typename Traits::Class, T>, "Method must belong to T");
-    auto &reg = detail::GetRegistry();
-    detail::MethodDescriptor m{};
-    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
-    m.name = detail::NameFromId(nameId);
-    m.nameId = nameId;
-    // Return type id
-    if constexpr (std::is_void_v<typename Traits::Ret>)
+  public:
+    explicit TypeBuilder(detail::TypeBuildAnchor anchor) noexcept
+        : m_anchor(anchor)
     {
-      m.returnTypeId = 0;
     }
-    else
+
+    TypeBuilder &SetName(std::string_view qualifiedName)
     {
-      auto rsv = NGIN::Meta::TypeName<typename Traits::Ret>::qualifiedName;
-      m.returnTypeId = NGIN::Hashing::FNV1a64(rsv.data(), rsv.size());
+      auto &record = detail::GetTypeRecord(m_anchor);
+      record.qualifiedName = detail::InternSymbol(qualifiedName);
+      return *this;
     }
-    // Param type ids
-    constexpr auto N = Traits::Arity;
-    if constexpr (N > 0)
+
+    template <auto MemberPtr>
+    TypeBuilder &Field(std::string_view name)
     {
-      using Tuple = typename Traits::Args;
-      detail::PushParamIds<Tuple>(m, std::make_index_sequence<N>{});
+      using Traits = detail::MemberPointerTraits<decltype(MemberPtr)>;
+      using Member = typename Traits::Member;
+
+      auto &record = detail::GetTypeRecord(m_anchor);
+      detail::FieldRecord field{};
+      field.name = detail::InternSymbol(name);
+      field.valueType = detail::MakeTypeReference<Member>();
+      field.readSlot = static_cast<std::uint32_t>(m_anchor.module->tables.fieldReaders.size());
+      m_anchor.module->tables.fieldReaders.push_back(&detail::FieldReadThunk<MemberPtr>);
+      field.writeSlot = static_cast<std::uint32_t>(m_anchor.module->tables.fieldWriters.size());
+      m_anchor.module->tables.fieldWriters.push_back(&detail::FieldWriteThunk<MemberPtr>);
+      record.fields.push_back(std::move(field));
+      return *this;
     }
-    m.isConst = Traits::IsConst;
-    // Invoker
-    m.Invoke = &Traits::template Invoke<MemFn>;
-    m.InvokeExact = &Traits::template InvokeExact<MemFn>;
-    reg.types[m_index].methods.PushBack(std::move(m));
-    // Add to overload set map
-    auto &tdesc = reg.types[m_index];
-    const auto newIndex = static_cast<NGIN::UInt32>(tdesc.methods.Size() - 1);
-    auto *vecPtr = tdesc.methodOverloads.GetPtr(tdesc.methods[newIndex].nameId);
-    if (!vecPtr)
+
+    template <auto Getter>
+    TypeBuilder &Property(std::string_view name)
     {
-      NGIN::Containers::Vector<NGIN::UInt32> v;
-      v.PushBack(newIndex);
-      tdesc.methodOverloads.Insert(tdesc.methods[newIndex].nameId, std::move(v));
+      using Traits = detail::MethodTraits<decltype(Getter)>;
+      using Return = typename Traits::Return;
+      using ValueType = std::remove_reference_t<Return>;
+
+      auto &record = detail::GetTypeRecord(m_anchor);
+      detail::PropertyRecord property{};
+      property.name = detail::InternSymbol(name);
+      property.valueType = detail::MakeTypeReference<ValueType>();
+      property.readSlot = static_cast<std::uint32_t>(m_anchor.module->tables.propertyReaders.size());
+      m_anchor.module->tables.propertyReaders.push_back(&detail::PropertyReadThunk<Getter>);
+      property.writeSlot = static_cast<std::uint32_t>(m_anchor.module->tables.propertyWriters.size());
+      if constexpr (std::is_lvalue_reference_v<Return> && !std::is_const_v<ValueType>)
+        m_anchor.module->tables.propertyWriters.push_back(&detail::PropertyWriteByReferenceThunk<Getter>);
+      else
+        m_anchor.module->tables.propertyWriters.push_back(nullptr);
+      record.properties.push_back(std::move(property));
+      return *this;
     }
-    else
+
+    template <auto Getter, auto Setter>
+    TypeBuilder &Property(std::string_view name)
     {
-      vecPtr->PushBack(newIndex);
+      using GetTraits = detail::MethodTraits<decltype(Getter)>;
+      using Return = typename GetTraits::Return;
+      using ValueType = std::remove_reference_t<Return>;
+
+      auto &record = detail::GetTypeRecord(m_anchor);
+      detail::PropertyRecord property{};
+      property.name = detail::InternSymbol(name);
+      property.valueType = detail::MakeTypeReference<ValueType>();
+      property.readSlot = static_cast<std::uint32_t>(m_anchor.module->tables.propertyReaders.size());
+      m_anchor.module->tables.propertyReaders.push_back(&detail::PropertyReadThunk<Getter>);
+      property.writeSlot = static_cast<std::uint32_t>(m_anchor.module->tables.propertyWriters.size());
+      m_anchor.module->tables.propertyWriters.push_back(&detail::PropertyWriteThunk<Setter>);
+      record.properties.push_back(std::move(property));
+      return *this;
     }
-    return *this;
-  }
 
-  template <class T>
-  template <auto Fn>
-  inline TypeBuilder<T> &TypeBuilder<T>::StaticMethod(std::string_view name)
-  {
-    static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "StaticMethod requires function pointer");
-    auto &reg = detail::GetRegistry();
-    (void)detail::RegisterFunctionUnlocked<Fn>(name, reg.types[m_index].moduleId);
-    return *this;
-  }
-
-  // ==== Property registration ====
-  template <class T>
-  template <auto Getter>
-  inline TypeBuilder<T> &TypeBuilder<T>::Property(std::string_view name)
-  {
-    using Traits = detail::GetterTraits<decltype(Getter)>;
-    static_assert(std::is_same_v<typename Traits::Class, T>, "Property getter must belong to T");
-    auto &reg = detail::GetRegistry();
-    detail::PropertyDescriptor p{};
-    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
-    p.nameId = nameId;
-    p.name = detail::NameFromId(nameId);
-    using Ret = typename Traits::Ret;
-    using Value = std::remove_cv_t<std::remove_reference_t<Ret>>;
-    auto sv = NGIN::Meta::TypeName<Value>::qualifiedName;
-    p.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-    p.Get = &detail::PropertyGet<Getter>;
-    if constexpr (std::is_lvalue_reference_v<Ret> && !std::is_const_v<std::remove_reference_t<Ret>>)
+    template <auto MethodPtr>
+    TypeBuilder &Method(std::string_view name)
     {
-      p.Set = &detail::PropertySetFromGetter<Getter>;
+      using Traits = detail::MethodTraits<decltype(MethodPtr)>;
+      using Return = typename Traits::Return;
+      using ArgsTuple = typename Traits::Args;
+
+      auto &record = detail::GetTypeRecord(m_anchor);
+      detail::MethodRecord method{};
+      method.name = detail::InternSymbol(name);
+      if constexpr (!std::is_void_v<Return>)
+        method.returnType = detail::MakeTypeReference<Return>();
+      method.invokeSlot = static_cast<std::uint32_t>(m_anchor.module->tables.methodInvokers.size());
+      method.isConst = Traits::IsConst;
+      m_anchor.module->tables.methodInvokers.push_back(&detail::MethodInvokeThunk<MethodPtr>);
+      detail::FillTypeRefs<ArgsTuple>(method.parameters,
+                                      std::make_index_sequence<std::tuple_size_v<ArgsTuple>>{});
+      record.methods.push_back(std::move(method));
+      return *this;
     }
-    reg.types[m_index].properties.PushBack(std::move(p));
-    const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].properties.Size() - 1);
-    reg.types[m_index].propertyIndex.Insert(reg.types[m_index].properties[newIdx].nameId, newIdx);
-    return *this;
-  }
 
-  template <class T>
-  template <auto Getter, auto Setter>
-  inline TypeBuilder<T> &TypeBuilder<T>::Property(std::string_view name)
-  {
-    using GetTraits = detail::GetterTraits<decltype(Getter)>;
-    using SetTraits = detail::SetterTraits<decltype(Setter)>;
-    static_assert(std::is_same_v<typename GetTraits::Class, T>, "Property getter must belong to T");
-    static_assert(std::is_same_v<typename SetTraits::Class, T>, "Property setter must belong to T");
-    auto &reg = detail::GetRegistry();
-    detail::PropertyDescriptor p{};
-    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
-    p.nameId = nameId;
-    p.name = detail::NameFromId(nameId);
-    using Ret = typename GetTraits::Ret;
-    using Value = std::remove_cv_t<std::remove_reference_t<Ret>>;
-    auto sv = NGIN::Meta::TypeName<Value>::qualifiedName;
-    p.typeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-    p.Get = &detail::PropertyGet<Getter>;
-    p.Set = &detail::PropertySet<Setter>;
-    reg.types[m_index].properties.PushBack(std::move(p));
-    const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].properties.Size() - 1);
-    reg.types[m_index].propertyIndex.Insert(reg.types[m_index].properties[newIdx].nameId, newIdx);
-    return *this;
-  }
-
-  template <class T>
-  inline TypeBuilder<T> &TypeBuilder<T>::EnumValue(std::string_view name, T value)
-  {
-    static_assert(std::is_enum_v<T>, "EnumValue requires an enum type");
-    auto &reg = detail::GetRegistry();
-    auto &info = reg.types[m_index].enumInfo;
-    if (!info.isEnum)
+    template <class... Args>
+    TypeBuilder &Constructor()
     {
-      using Under = std::underlying_type_t<T>;
-      info.isEnum = true;
-      info.isSigned = std::is_signed_v<Under>;
-      auto sv = NGIN::Meta::TypeName<Under>::qualifiedName;
-      info.underlyingTypeId = NGIN::Hashing::FNV1a64(sv.data(), sv.size());
-      info.ToUnsigned = &detail::EnumToUnsigned<T>;
-      info.ToSigned = &detail::EnumToSigned<T>;
+      auto &record = detail::GetTypeRecord(m_anchor);
+      detail::ConstructorRecord ctor{};
+      ctor.constructSlot = static_cast<std::uint32_t>(m_anchor.module->tables.constructors.size());
+      m_anchor.module->tables.constructors.push_back(&detail::ConstructorThunk<T, Args...>);
+      (ctor.parameters.push_back(detail::MakeTypeReference<Args>()), ...);
+      record.constructors.push_back(std::move(ctor));
+      return *this;
     }
-    detail::EnumValueDescriptor ev{};
-    auto nameId = detail::InternNameId(reg.types[m_index].moduleId, name);
-    ev.nameId = nameId;
-    ev.name = detail::NameFromId(nameId);
-    ev.value = Any{value};
-    using Under = std::underlying_type_t<T>;
-    if constexpr (std::is_signed_v<Under>)
+
+    TypeBuilder &EnumValue(std::string_view name, T value)
     {
-      ev.svalue = static_cast<std::int64_t>(static_cast<Under>(value));
-      using Uns = std::make_unsigned_t<Under>;
-      ev.uvalue = static_cast<std::uint64_t>(static_cast<Uns>(static_cast<Under>(value)));
+      static_assert(std::is_enum_v<T>, "EnumValue requires enum T");
+      auto &record = detail::GetTypeRecord(m_anchor);
+      record.isEnum = true;
+      record.enumSigned = std::is_signed_v<std::underlying_type_t<T>>;
+      record.enumUnderlyingType = detail::MakeTypeReference<std::underlying_type_t<T>>();
+      record.enumValues.push_back(detail::EnumRecord{
+          detail::InternSymbol(name),
+          static_cast<std::int64_t>(static_cast<std::underlying_type_t<T>>(value)),
+          static_cast<std::uint64_t>(static_cast<std::make_unsigned_t<std::underlying_type_t<T>>>(static_cast<std::underlying_type_t<T>>(value)))});
+      return *this;
     }
-    else
+
+    template <class BaseT>
+    TypeBuilder &Base()
     {
-      ev.uvalue = static_cast<std::uint64_t>(static_cast<Under>(value));
-      ev.svalue = static_cast<std::int64_t>(ev.uvalue);
+      auto &record = detail::GetTypeRecord(m_anchor);
+      detail::BaseRecord base{};
+      base.baseName = detail::InternSymbol(NGIN::Meta::TypeName<BaseT>::qualifiedName);
+      base.upcastSlot = static_cast<std::uint32_t>(m_anchor.module->tables.upcasters.size());
+      m_anchor.module->tables.upcasters.push_back(&detail::UpcastThunk<BaseT, T>);
+      base.downcastSlot = static_cast<std::uint32_t>(m_anchor.module->tables.downcasters.size());
+      m_anchor.module->tables.downcasters.push_back(&detail::DowncastThunk<T, BaseT>);
+      record.bases.push_back(std::move(base));
+      return *this;
     }
-    reg.types[m_index].enumInfo.values.PushBack(std::move(ev));
-    const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].enumInfo.values.Size() - 1);
-    reg.types[m_index].enumInfo.valueIndex.Insert(reg.types[m_index].enumInfo.values[newIdx].nameId, newIdx);
-    return *this;
-  }
 
-  template <class T>
-  template <class BaseT>
-  inline TypeBuilder<T> &TypeBuilder<T>::Base()
-  {
-    static_assert(std::is_base_of_v<BaseT, T>, "BaseT must be a base of T");
-    auto &reg = detail::GetRegistry();
-    auto baseIndex = detail::EnsureRegistered<BaseT>(reg.types[m_index].moduleId);
-    detail::BaseDescriptor b{};
-    b.baseTypeIndex = baseIndex;
-    b.baseTypeId = reg.types[baseIndex].typeId;
-    b.Upcast = &detail::Upcast<T, BaseT>;
-    b.UpcastConst = &detail::UpcastConst<T, BaseT>;
-    reg.types[m_index].bases.PushBack(std::move(b));
-    const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].bases.Size() - 1);
-    reg.types[m_index].baseIndex.Insert(reg.types[m_index].bases[newIdx].baseTypeId, newIdx);
-    return *this;
-  }
-
-  template <class T>
-  template <class BaseT, auto Downcast>
-  inline TypeBuilder<T> &TypeBuilder<T>::Base()
-  {
-    static_assert(std::is_base_of_v<BaseT, T>, "BaseT must be a base of T");
-    using Traits = detail::DowncastTraits<decltype(Downcast)>;
-    static_assert(std::is_same_v<typename Traits::Base, BaseT>, "Downcast base type mismatch");
-    static_assert(std::is_same_v<typename Traits::Derived, T>, "Downcast derived type mismatch");
-    auto &reg = detail::GetRegistry();
-    auto baseIndex = detail::EnsureRegistered<BaseT>(reg.types[m_index].moduleId);
-    detail::BaseDescriptor b{};
-    b.baseTypeIndex = baseIndex;
-    b.baseTypeId = reg.types[baseIndex].typeId;
-    b.Upcast = &detail::Upcast<T, BaseT>;
-    b.UpcastConst = &detail::UpcastConst<T, BaseT>;
-    if constexpr (Traits::IsConst)
-      b.DowncastConst = &detail::DowncastConst<Downcast>;
-    else
-      b.Downcast = &detail::Downcast<Downcast>;
-    reg.types[m_index].bases.PushBack(std::move(b));
-    const auto newIdx = static_cast<NGIN::UInt32>(reg.types[m_index].bases.Size() - 1);
-    reg.types[m_index].baseIndex.Insert(reg.types[m_index].bases[newIdx].baseTypeId, newIdx);
-    return *this;
-  }
-
-  // ==== Constructor registration ====
-  template <class T>
-  template <class... A>
-  inline TypeBuilder<T> &TypeBuilder<T>::Constructor()
-  {
-    auto &reg = detail::GetRegistry();
-    detail::ConstructorDescriptor c{};
-    if constexpr (sizeof...(A) > 0)
+    template <class BaseT, auto Downcast>
+    TypeBuilder &Base()
     {
-      using Tuple = std::tuple<A...>;
-      detail::PushCtorParamIds<Tuple>(c.paramTypeIds, std::make_index_sequence<sizeof...(A)>{});
+      auto &record = detail::GetTypeRecord(m_anchor);
+      detail::BaseRecord base{};
+      base.baseName = detail::InternSymbol(NGIN::Meta::TypeName<BaseT>::qualifiedName);
+      base.upcastSlot = static_cast<std::uint32_t>(m_anchor.module->tables.upcasters.size());
+      m_anchor.module->tables.upcasters.push_back(&detail::UpcastThunk<BaseT, T>);
+      base.downcastSlot = static_cast<std::uint32_t>(m_anchor.module->tables.downcasters.size());
+      m_anchor.module->tables.downcasters.push_back(&detail::CustomDowncastThunk<T, BaseT, Downcast>);
+      record.bases.push_back(std::move(base));
+      return *this;
     }
-    c.Construct = [](const Any *args, NGIN::UIntSize count) -> std::expected<Any, Error>
-    {
-      if (count != sizeof...(A))
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "bad arity"});
-      // Convert then construct
-      auto convert_and_make = [&](auto &&...unpacked) -> std::expected<Any, Error>
-      {
-        if (((detail::ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[unpacked]).has_value()) && ...))
-        {
-          if constexpr (sizeof...(A) == 0)
-          {
-            return Any{T{}};
-          }
-          else
-          {
-            T obj{detail::ConvertAny<std::remove_cv_t<std::remove_reference_t<A>>>(args[unpacked]).value()...};
-            return Any{std::move(obj)};
-          }
-        }
-        return std::unexpected(Error{ErrorCode::InvalidArgument, "argument conversion failed"});
-      };
-      return [&]<std::size_t... I>(std::index_sequence<I...>)
-      {
-        return convert_and_make(I...);
-      }(std::make_index_sequence<sizeof...(A)>{});
-    };
-    reg.types[m_index].constructors.PushBack(std::move(c));
-    return *this;
-  }
 
-  // Implement MethodAttribute after MethodTraits are defined
-  template <class T>
-  template <auto MemFn>
-  inline TypeBuilder<T> &TypeBuilder<T>::MethodAttribute(std::string_view key, const AttrValue &value)
-  {
-    using Traits = detail::MethodTraits<decltype(MemFn)>;
-    auto &reg = detail::GetRegistry();
-    const auto moduleId = reg.types[m_index].moduleId;
-    auto k = detail::InternName(moduleId, key);
-    auto v = detail::InternAttrValue(moduleId, value);
-    auto inv = &Traits::template Invoke<MemFn>;
-    auto &methods = reg.types[m_index].methods;
-    for (auto i = NGIN::UIntSize{0}; i < methods.Size(); ++i)
+    TypeBuilder &Attribute(std::string_view key, const AttributeValue &value)
     {
-      if (methods[i].Invoke == inv)
-      {
-        methods[i].attributes.PushBack(AttributeDesc{k, v});
-        break;
-      }
+      auto &record = detail::GetTypeRecord(m_anchor);
+      record.attributes.push_back(detail::AttributeRecord{detail::InternSymbol(key), value});
+      return *this;
     }
-    return *this;
-  }
 
-  // Removed obsolete add_param_ids helper
+    template <auto MemberPtr>
+    TypeBuilder &FieldAttribute(std::string_view key, const AttributeValue &value)
+    {
+      auto &record = detail::GetTypeRecord(m_anchor);
+      if (!record.fields.empty())
+        record.fields.back().attributes.push_back(detail::AttributeRecord{detail::InternSymbol(key), value});
+      return *this;
+    }
 
-  template <auto Fn>
-  inline Function RegisterFunction(std::string_view name)
-  {
-    static_assert(detail::IsFunctionPtrV<decltype(Fn)>, "RegisterFunction requires function pointer");
-    [[maybe_unused]] auto lock = detail::LockRegistryWrite();
-    return detail::RegisterFunctionUnlocked<Fn>(name, ModuleId{0});
-  }
+    template <auto Getter>
+    TypeBuilder &PropertyAttribute(std::string_view key, const AttributeValue &value)
+    {
+      auto &record = detail::GetTypeRecord(m_anchor);
+      if (!record.properties.empty())
+        record.properties.back().attributes.push_back(detail::AttributeRecord{detail::InternSymbol(key), value});
+      return *this;
+    }
 
+    template <auto MethodPtr>
+    TypeBuilder &MethodAttribute(std::string_view key, const AttributeValue &value)
+    {
+      auto &record = detail::GetTypeRecord(m_anchor);
+      if (!record.methods.empty())
+        record.methods.back().attributes.push_back(detail::AttributeRecord{detail::InternSymbol(key), value});
+      return *this;
+    }
+
+    constexpr void Build() const noexcept {}
+
+  private:
+    detail::TypeBuildAnchor m_anchor{};
+  };
 } // namespace NGIN::Reflection

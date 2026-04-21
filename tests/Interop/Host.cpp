@@ -1,20 +1,15 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <NGIN/Reflection/ABI.hpp>
-#include <NGIN/Reflection/ABIMerge.hpp>
-#include <NGIN/Reflection/Registry.hpp>
+#include <NGIN/Reflection/Reflection.hpp>
 
-#include <cstdint>
+#include <array>
 #include <string>
 
 #if defined(_WIN32)
 #include <windows.h>
 using LibHandle = HMODULE;
 static LibHandle OpenLib(const char *path) { return LoadLibraryA(path); }
-static void *GetSym(LibHandle h, const char *name)
-{
-  return (void *)GetProcAddress(h, name);
-}
+static void *GetSym(LibHandle h, const char *name) { return reinterpret_cast<void *>(GetProcAddress(h, name)); }
 static void CloseLib(LibHandle h)
 {
   if (h)
@@ -77,24 +72,18 @@ static const char *ABase = "libInteropPluginA.so";
 static const char *BBase = "libInteropPluginB.so";
 #endif
 
-using namespace NGIN::Reflection;
-
-using ModuleInitFn = bool (*)();
+using InitFn = bool (*)();
+using ApiFn = bool (*)(NGINReflectionModuleApi *);
 
 namespace
 {
   struct LibGuard
   {
-    explicit LibGuard(LibHandle h = nullptr) : handle(h) {}
+    explicit LibGuard(LibHandle lib = nullptr) : handle(lib) {}
     ~LibGuard() { CloseLib(handle); }
-
     LibGuard(const LibGuard &) = delete;
     LibGuard &operator=(const LibGuard &) = delete;
-
-    LibGuard(LibGuard &&other) noexcept : handle(other.handle)
-    {
-      other.handle = nullptr;
-    }
+    LibGuard(LibGuard &&other) noexcept : handle(other.handle) { other.handle = nullptr; }
     LibGuard &operator=(LibGuard &&other) noexcept
     {
       if (this != &other)
@@ -105,97 +94,62 @@ namespace
       }
       return *this;
     }
-
     LibHandle handle{nullptr};
   };
 } // namespace
 
-TEST_CASE("LoadsPluginsAndExecutesMergedMetadata", "[reflection][Interop]")
+TEST_CASE("Imported module API exposes the same callable surface as local registration", "[reflection][interop]")
 {
+  using namespace NGIN::Reflection;
+
   auto dir = GetExeDir();
-  auto aPath = dir + "/" + ABase;
-  auto bPath = dir + "/" + BBase;
-
-  LibGuard a{OpenLib(aPath.c_str())};
-  LibGuard b{OpenLib(bPath.c_str())};
-
-  INFO("load A from " << aPath);
+  LibGuard a{OpenLib((dir + "/" + ABase).c_str())};
+  LibGuard b{OpenLib((dir + "/" + BBase).c_str())};
   REQUIRE(a.handle != nullptr);
-  INFO("load B from " << bPath);
   REQUIRE(b.handle != nullptr);
 
-  auto initA = reinterpret_cast<ModuleInitFn>(GetSym(a.handle, "NGINReflectionModuleInit"));
-  auto initB = reinterpret_cast<ModuleInitFn>(GetSym(b.handle, "NGINReflectionModuleInit"));
-  INFO("init sym A");
+  auto initA = reinterpret_cast<InitFn>(GetSym(a.handle, "NGINReflectionModuleInit"));
+  auto initB = reinterpret_cast<InitFn>(GetSym(b.handle, "NGINReflectionModuleInit"));
+  auto apiA = reinterpret_cast<ApiFn>(GetSym(a.handle, "NGINReflectionGetModuleApi"));
+  auto apiB = reinterpret_cast<ApiFn>(GetSym(b.handle, "NGINReflectionGetModuleApi"));
   REQUIRE(initA != nullptr);
-  INFO("init sym B");
   REQUIRE(initB != nullptr);
+  REQUIRE(apiA != nullptr);
+  REQUIRE(apiB != nullptr);
 
-  const bool initAOk = initA();
-  INFO("init A" << (initAOk ? "" : " failed"));
-  REQUIRE(initAOk);
-  const bool initBOk = initB();
-  INFO("init B" << (initBOk ? "" : " failed"));
-  REQUIRE(initBOk);
+  REQUIRE(initA());
+  REQUIRE(initB());
 
-  auto symA = reinterpret_cast<bool (*)(NGINReflectionRegistryV1 *)>(
-      GetSym(a.handle, "NGINReflectionExportV1"));
-  auto symB = reinterpret_cast<bool (*)(NGINReflectionRegistryV1 *)>(
-      GetSym(b.handle, "NGINReflectionExportV1"));
-  INFO("sym A");
-  REQUIRE(symA != nullptr);
-  INFO("sym B");
-  REQUIRE(symB != nullptr);
+  NGINReflectionModuleApi moduleA{};
+  NGINReflectionModuleApi moduleB{};
+  REQUIRE(apiA(&moduleA));
+  REQUIRE(apiB(&moduleB));
 
-  NGINReflectionRegistryV1 modA{}, modB{};
-  bool okA = symA(&modA);
-  bool okB = symB(&modB);
-  INFO("export A");
-  REQUIRE(okA);
-  INFO("export B");
-  REQUIRE(okB);
+  Error error{};
+  REQUIRE(ImportModule(moduleA, &error));
+  REQUIRE(ImportModule(moduleB, &error));
 
-  MergeStats stats{};
-  const char *err = nullptr;
-  const bool mergeA = MergeRegistryV1(modA, &stats, &err);
-  INFO("merge A" << (err ? err : ""));
-  REQUIRE(mergeA);
+  auto adderType = GetType("Interop::Adder");
+  REQUIRE(adderType.has_value());
+  auto adder = adderType->Construct();
+  REQUIRE(adder.has_value());
+  auto add = adderType->GetMethod("Add");
+  REQUIRE(add.has_value());
+  std::array<Value, 2> addArgs{Value{std::int64_t{3}}, Value{std::int64_t{4}}};
+  auto sum = add->Invoke(*adder, addArgs);
+  REQUIRE(sum.has_value());
+  REQUIRE(sum->TryAs<std::int64_t>() != nullptr);
+  CHECK((*sum->TryAs<std::int64_t>()) == 7);
 
-  err = nullptr;
-  const bool mergeB = MergeRegistryV1(modB, &stats, &err);
-  INFO("merge B" << (err ? err : ""));
-  REQUIRE(mergeB);
-  CHECK(stats.modulesMerged == std::uint64_t{2});
-  CHECK(stats.typesAdded >= std::uint64_t{2});
-  CHECK(stats.typesConflicted >= std::uint64_t{1});
-
-  auto tAdder = GetType("Interop::Adder");
-  INFO("type Adder");
-  REQUIRE(tAdder.has_value());
-  auto mAdd = tAdder->ResolveMethod<int, int, int>("Add");
-  INFO("method Add");
-  REQUIRE(mAdd.has_value());
-  auto anyObj = tAdder->DefaultConstruct();
-  INFO("construct");
-  REQUIRE(anyObj.has_value());
-  auto result =
-      mAdd->InvokeAs<int>(const_cast<void *>(anyObj->Data()), 2, 3);
-  INFO("invoke add");
-  REQUIRE(result.has_value());
-  CHECK(*result == 5);
-
-  auto tMul = GetType("Interop::Multiplier");
-  INFO("type Multiplier");
-  REQUIRE(tMul.has_value());
-  auto mMul = tMul->ResolveMethod<int, int, int>("Mul");
-  INFO("method Mul");
-  REQUIRE(mMul.has_value());
-  auto anyObj2 = tMul->DefaultConstruct();
-  INFO("construct");
-  REQUIRE(anyObj2.has_value());
-  auto result2 =
-      mMul->InvokeAs<int>(const_cast<void *>(anyObj2->Data()), 2, 3);
-  INFO("invoke mul");
-  REQUIRE(result2.has_value());
-  CHECK(*result2 == 6);
+  auto multiplierType = GetType("Interop::Multiplier");
+  REQUIRE(multiplierType.has_value());
+  auto multiplier = multiplierType->Construct();
+  REQUIRE(multiplier.has_value());
+  auto mul = multiplierType->GetMethod("Mul");
+  REQUIRE(mul.has_value());
+  std::array<Value, 2> mulArgs{Value{std::int64_t{3}}, Value{std::int64_t{4}}};
+  auto product = mul->Invoke(*multiplier, mulArgs);
+  REQUIRE(product.has_value());
+  REQUIRE(product->TryAs<std::int64_t>() != nullptr);
+  CHECK((*product->TryAs<std::int64_t>()) == 12);
 }

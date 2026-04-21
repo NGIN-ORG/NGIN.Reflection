@@ -1,42 +1,23 @@
-#include <NGIN/Reflection/TypeBuilder.hpp>
-#include <NGIN/Reflection/Registry.hpp>
-#include <NGIN/Reflection/ABI.hpp>
-#include <NGIN/Reflection/ModuleInit.hpp>
+#include <NGIN/Reflection/Reflection.hpp>
 
 namespace Interop
 {
-  struct Common
-  {
-    int a{1};
-  };
-
   struct Adder
   {
-    int Add(int x, int y) const { return x + y; }
+    int Add(int lhs, int rhs) const { return lhs + rhs; }
   };
 
-  // ADL friends for reflection
-  template <class T>
-  void NginReflect(NGIN::Reflection::Tag<T>, NGIN::Reflection::TypeBuilder<T> &);
-
-  template <>
-  void NginReflect<Common>(NGIN::Reflection::Tag<Common>, NGIN::Reflection::TypeBuilder<Common> &b)
+  inline void NginReflect(NGIN::Reflection::Tag<Adder>, NGIN::Reflection::TypeBuilder<Adder> &builder)
   {
-    b.Field<&Common::a>("a");
+    builder.SetName("Interop::Adder");
+    builder.Method<&Adder::Add>("Add");
   }
-
-  template <>
-  void NginReflect<Adder>(NGIN::Reflection::Tag<Adder>, NGIN::Reflection::TypeBuilder<Adder> &b)
-  {
-    b.Method<&Adder::Add>("Add");
-  }
-}
+} // namespace Interop
 
 extern "C" NGIN_REFLECTION_API bool NGINReflectionModuleInit()
 {
   using namespace NGIN::Reflection;
-  return EnsureModuleInitialized("InteropPluginA", [](ModuleRegistration &module)
-                                 { module.RegisterTypes<Interop::Common, Interop::Adder>(); });
+  return EnsureModuleInitialized("Interop.PluginA", [](ModuleRegistration &module) {
+    module.RegisterType<Interop::Adder>();
+  });
 }
-
-// The ABI export symbol is implemented by NGIN.Reflection compiled into this module

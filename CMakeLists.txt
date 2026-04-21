@@ -58,9 +58,7 @@ add_library(NGIN.Reflection
   src/Registry.cpp
 )
 if(NGIN_REFLECTION_ENABLE_ABI)
-  target_sources(NGIN.Reflection PRIVATE src/ABI.cpp)
   target_compile_definitions(NGIN.Reflection PUBLIC NGIN_REFLECTION_ENABLE_ABI=1)
-  target_sources(NGIN.Reflection PRIVATE src/ABIMerge.cpp)
 endif()
 
 target_compile_features(NGIN.Reflection PUBLIC cxx_std_23)

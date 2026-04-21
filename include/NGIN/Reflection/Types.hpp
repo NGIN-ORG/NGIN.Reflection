@@ -1,152 +1,245 @@
-// Types.hpp
-// Public-facing error codes and small ABI-stable handle types
 #pragma once
 
-#include <NGIN/Primitives.hpp>
+#include <NGIN/Meta/ReflectionIdentity.hpp>
+#include <NGIN/Reflection/ABI.hpp>
 #include <NGIN/Utilities/Any.hpp>
-#include <NGIN/Containers/Vector.hpp>
-#include <string_view>
+
+#include <cstddef>
+#include <cstdint>
 #include <expected>
-#include <utility>
+#include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <variant>
 
 namespace NGIN::Reflection
 {
-
+  using SymbolId = NGIN::Meta::SymbolId;
+  using ModuleIdentity = NGIN::Meta::ModuleIdentity;
+  using TypeIdentity = NGIN::Meta::TypeIdentity;
   using Any = NGIN::Utilities::Any<>;
-  using ModuleId = NGIN::UInt64;
+  using AnyView = Any::View;
+  using ConstAnyView = Any::ConstView;
 
-  enum class ErrorCode : unsigned
+  namespace detail
   {
-    NotFound = 1,
-    InvalidArgument = 2,
-  };
+    struct InstanceStorage;
+  }
 
-  enum class DiagnosticCode : unsigned
+  enum class ErrorCode : std::uint32_t
   {
-    None = 0,
-    ArityMismatch = 1,
-    NonConvertible = 2,
-    NoOverloads = 3,
-  };
-
-  struct OverloadDiagnostic
-  {
-    NGIN::UInt32 methodIndex{static_cast<NGIN::UInt32>(-1)};
-    std::string_view name{};
-    NGIN::UIntSize arity{0};
-    DiagnosticCode code{DiagnosticCode::None};
-    NGIN::UIntSize argIndex{static_cast<NGIN::UIntSize>(-1)};
-    int totalCost{0};
-    int narrow{0};
-    int conversions{0};
+    NotFound = NGINReflectionStatus_NotFound,
+    InvalidArgument = NGINReflectionStatus_InvalidArgument,
+    StaleHandle = NGINReflectionStatus_StaleHandle,
+    AbiMismatch = NGINReflectionStatus_AbiMismatch,
+    Conflict = NGINReflectionStatus_Conflict,
+    CorruptModule = NGINReflectionStatus_CorruptModule,
+    InternalError = NGINReflectionStatus_InternalError,
   };
 
   struct Error
   {
-    ErrorCode code{ErrorCode::InvalidArgument};
-    std::string_view message{};
-    NGIN::Containers::Vector<OverloadDiagnostic> diagnostics{};
-    std::optional<NGIN::UInt32> closestMethodIndex{};
+    ErrorCode code{ErrorCode::InternalError};
+    std::string message;
+  };
 
-    constexpr Error() = default;
-    Error(ErrorCode c, std::string_view m) : code(c), message(m) {}
-    Error(ErrorCode c, std::string_view m, NGIN::Containers::Vector<OverloadDiagnostic> d)
-        : code(c), message(m), diagnostics(std::move(d))
+  using AttributeValue = std::variant<bool, std::int64_t, std::uint64_t, double, std::string, SymbolId, TypeIdentity>;
+
+  class ConstInstanceRef
+  {
+  public:
+    ConstInstanceRef() = default;
+    explicit ConstInstanceRef(std::shared_ptr<detail::InstanceStorage> storage) noexcept
+        : m_storage(std::move(storage))
     {
     }
+
+    [[nodiscard]] bool IsValid() const noexcept;
+    [[nodiscard]] TypeIdentity Identity() const noexcept;
+    [[nodiscard]] const void *Data() const noexcept;
+    [[nodiscard]] const NGINReflectionInstanceHandle *AbiHandle() const noexcept;
+
+    template <class T>
+    [[nodiscard]] const T *TryAs() const noexcept
+    {
+      return static_cast<const T *>(Data());
+    }
+
+  protected:
+    std::shared_ptr<detail::InstanceStorage> m_storage{};
+
+    friend class InstanceRef;
+    friend class Value;
   };
 
-  // Small opaque handles (indices into immutable tables). Intentionally trivial.
-  struct TypeHandle
+  class InstanceRef final : public ConstInstanceRef
   {
-    NGIN::UInt32 index{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 generation{0};
-    constexpr bool IsValid() const noexcept { return index != static_cast<NGIN::UInt32>(-1); }
+  public:
+    InstanceRef() = default;
+    explicit InstanceRef(std::shared_ptr<detail::InstanceStorage> storage) noexcept
+        : ConstInstanceRef(std::move(storage))
+    {
+    }
+
+    [[nodiscard]] void *Data() noexcept;
+    [[nodiscard]] const NGINReflectionInstanceHandle *AbiHandle() const noexcept;
+    [[nodiscard]] NGINReflectionInstanceHandle *AbiHandle() noexcept;
+
+    template <class T>
+    [[nodiscard]] T *TryAs() noexcept
+    {
+      return static_cast<T *>(Data());
+    }
+
+  private:
+    friend class Value;
+    friend class Field;
+    friend class Property;
+    friend class Method;
+    friend class Constructor;
+    friend class Base;
+    friend class Function;
+    friend class ModuleRegistration;
   };
 
-  struct FieldHandle
+  class Value;
+
+  class ConstValueView
   {
-    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 fieldIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 typeGeneration{0};
-    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && fieldIndex != static_cast<NGIN::UInt32>(-1); }
+  public:
+    ConstValueView() = default;
+    explicit ConstValueView(const Value *value) noexcept
+        : m_value(value)
+    {
+    }
+
+    [[nodiscard]] bool IsValid() const noexcept;
+    [[nodiscard]] bool IsEmpty() const noexcept;
+    [[nodiscard]] bool IsInstance() const noexcept;
+    [[nodiscard]] const Any *TryAny() const noexcept;
+    [[nodiscard]] std::optional<ConstInstanceRef> TryAsInstance() const noexcept;
+    [[nodiscard]] std::optional<ConstAnyView> TryAsAnyView() const noexcept;
+
+    template <class T>
+    [[nodiscard]] const T *TryAs() const noexcept
+    {
+      if (const auto *boxed = TryAny())
+        return boxed->TryCast<T>();
+      return nullptr;
+    }
+
+  private:
+    const Value *m_value{nullptr};
   };
 
-  struct PropertyHandle
+  class ValueView
   {
-    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 propertyIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 typeGeneration{0};
-    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && propertyIndex != static_cast<NGIN::UInt32>(-1); }
+  public:
+    ValueView() = default;
+    explicit ValueView(Value *value) noexcept
+        : m_value(value)
+    {
+    }
+
+    [[nodiscard]] bool IsValid() const noexcept;
+    [[nodiscard]] bool IsInstance() const noexcept;
+    [[nodiscard]] Any *TryAny() noexcept;
+    [[nodiscard]] std::optional<InstanceRef> TryAsInstance() noexcept;
+    [[nodiscard]] std::optional<AnyView> TryAsAnyView() noexcept;
+
+    template <class T>
+    [[nodiscard]] T *TryAs() noexcept
+    {
+      if (auto *boxed = TryAny())
+        return boxed->TryCast<T>();
+      return nullptr;
+    }
+
+  private:
+    Value *m_value{nullptr};
   };
 
-  struct ConstructorHandle
+  class Value
   {
-    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 ctorIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 typeGeneration{0};
-    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && ctorIndex != static_cast<NGIN::UInt32>(-1); }
+  public:
+    Value() = default;
+    explicit Value(bool value);
+    explicit Value(std::int64_t value);
+    explicit Value(std::uint64_t value);
+    explicit Value(double value);
+    explicit Value(std::string value);
+    explicit Value(const char *value);
+    explicit Value(Any value);
+
+    [[nodiscard]] static Value FromInstance(const InstanceRef &instance);
+
+    [[nodiscard]] bool IsEmpty() const noexcept;
+    [[nodiscard]] bool IsInstance() const noexcept;
+    [[nodiscard]] const Any *TryAny() const noexcept;
+    [[nodiscard]] Any *TryAny() noexcept;
+    [[nodiscard]] std::optional<ConstInstanceRef> TryAsInstance() const noexcept;
+    [[nodiscard]] std::optional<InstanceRef> TryAsInstance() noexcept;
+    [[nodiscard]] ConstValueView View() const noexcept;
+    [[nodiscard]] ValueView View() noexcept;
+
+    template <class T>
+    [[nodiscard]] const T *TryAs() const noexcept
+    {
+      if (const auto *boxed = TryAny())
+        return boxed->TryCast<T>();
+      return nullptr;
+    }
+
+    template <class T>
+    [[nodiscard]] T *TryAs() noexcept
+    {
+      if (auto *boxed = TryAny())
+        return boxed->TryCast<T>();
+      return nullptr;
+    }
+
+  private:
+    std::variant<std::monostate, Any, std::shared_ptr<detail::InstanceStorage>> m_storage{};
+
+    friend class ConstValueView;
+    friend class ValueView;
+    friend class Field;
+    friend class Property;
+    friend class Method;
+    friend class Constructor;
+    friend class Function;
+    friend class Base;
+    friend class Type;
   };
 
-  struct EnumValueHandle
-  {
-    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 valueIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 typeGeneration{0};
-    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && valueIndex != static_cast<NGIN::UInt32>(-1); }
-  };
-
-  struct BaseHandle
-  {
-    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 baseIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 typeGeneration{0};
-    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && baseIndex != static_cast<NGIN::UInt32>(-1); }
-  };
-
-  struct FunctionHandle
-  {
-    NGIN::UInt32 index{static_cast<NGIN::UInt32>(-1)};
-    constexpr bool IsValid() const noexcept { return index != static_cast<NGIN::UInt32>(-1); }
-  };
-
-  enum class MemberKind : unsigned char
-  {
-    Field = 0,
-    Property = 1,
-    Method = 2,
-    Constructor = 3,
-  };
-
-  struct MemberHandle
-  {
-    MemberKind kind{MemberKind::Field};
-    NGIN::UInt32 typeIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 memberIndex{static_cast<NGIN::UInt32>(-1)};
-    NGIN::UInt32 typeGeneration{0};
-    constexpr bool IsValid() const noexcept { return typeIndex != static_cast<NGIN::UInt32>(-1) && memberIndex != static_cast<NGIN::UInt32>(-1); }
-  };
-
-  // Forward decls of high-level wrappers
   class Type;
   class Field;
   class Property;
   class Method;
   class Constructor;
-  class Member;
   class EnumValue;
   class Base;
   class Function;
-  class ResolvedFunction;
+  class AttributeView;
 
   using ExpectedType = std::expected<Type, Error>;
   using ExpectedField = std::expected<Field, Error>;
   using ExpectedProperty = std::expected<Property, Error>;
+  using ExpectedMethod = std::expected<Method, Error>;
   using ExpectedConstructor = std::expected<Constructor, Error>;
   using ExpectedEnumValue = std::expected<EnumValue, Error>;
   using ExpectedBase = std::expected<Base, Error>;
   using ExpectedFunction = std::expected<Function, Error>;
-  using ExpectedResolvedFunction = std::expected<ResolvedFunction, Error>;
+  using ExpectedValue = std::expected<Value, Error>;
+  using ExpectedInstance = std::expected<InstanceRef, Error>;
+  using ExpectedAttribute = std::expected<AttributeView, Error>;
 
+  struct RegistrySnapshot
+  {
+    std::uint64_t generation{0};
+    std::size_t moduleCount{0};
+    std::size_t typeCount{0};
+    std::size_t functionCount{0};
+  };
 } // namespace NGIN::Reflection
