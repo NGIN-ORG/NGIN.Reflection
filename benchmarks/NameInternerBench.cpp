@@ -1,7 +1,9 @@
 #include <iostream>
+#include <string>
+#include <vector>
+
 #include <NGIN/Benchmark.hpp>
 #include <NGIN/Reflection/Registry.hpp>
-#include <NGIN/Containers/String.hpp>
 
 using namespace NGIN;
 
@@ -11,14 +13,11 @@ int main()
   using namespace NGIN::Reflection::detail;
 
   constexpr int N = 10000;
-  NGIN::Containers::Vector<NGIN::Containers::String> names;
-  names.Reserve(N);
+  std::vector<std::string> names;
+  names.reserve(N);
   for (int i = 0; i < N; ++i)
   {
-    NGIN::Containers::String s;
-    s.Append("bench::Name_");
-    s.Append(std::to_string(i));
-    names.PushBack(std::move(s));
+    names.push_back("bench::Name_" + std::to_string(i));
   }
 
   Benchmark::Register([&](BenchmarkContext &ctx)
@@ -26,7 +25,7 @@ int main()
                         ctx.start();
                         for (int i = 0; i < N; ++i)
                         {
-                          (void)InternNameId(std::string_view{names[i].CStr(), names[i].GetSize()});
+                          (void)InternSymbol(names[i]);
                         }
                         ctx.stop(); }, "Interner: InsertOrGet 10k unique");
 
@@ -35,7 +34,7 @@ int main()
                         ctx.start();
                         for (int i = 0; i < N; ++i)
                         {
-                          (void)InternNameId(std::string_view{names[i].CStr(), names[i].GetSize()});
+                          (void)InternSymbol(names[i]);
                         }
                         ctx.stop(); }, "Interner: InsertOrGet 10k duplicates");
 
@@ -44,20 +43,16 @@ int main()
                         ctx.start();
                         for (int i = 0; i < N; ++i)
                         {
-                          NameId id{};
-                          (void)FindNameId(std::string_view{names[i].CStr(), names[i].GetSize()}, id);
+                          SymbolId id{};
+                          (void)TryGetSymbol(names[i], id);
                         }
                         ctx.stop(); }, "Interner: FindId 10k hits");
 
-  // Miss strings
-  NGIN::Containers::Vector<NGIN::Containers::String> miss;
-  miss.Reserve(N);
+  std::vector<std::string> misses;
+  misses.reserve(N);
   for (int i = 0; i < N; ++i)
   {
-    NGIN::Containers::String s;
-    s.Append("bench::Miss_");
-    s.Append(std::to_string(i));
-    miss.PushBack(std::move(s));
+    misses.push_back("bench::Miss_" + std::to_string(i));
   }
 
   Benchmark::Register([&](BenchmarkContext &ctx)
@@ -66,8 +61,8 @@ int main()
                         int found = 0;
                         for (int i = 0; i < N; ++i)
                         {
-                          NameId id{};
-                          if (FindNameId(std::string_view{miss[i].CStr(), miss[i].GetSize()}, id))
+                          SymbolId id{};
+                          if (TryGetSymbol(misses[i], id))
                             ++found;
                         }
                         ctx.doNotOptimize(found);

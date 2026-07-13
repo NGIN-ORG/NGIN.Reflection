@@ -60,7 +60,7 @@ int main()
   using namespace NGIN::Reflection;
   using LookupBench::ManyFields;
 
-  auto t = GetType<ManyFields>();
+  auto t = GetType<ManyFields>().value();
 
   // Warmup lookup (ensure interning of the names used below)
   (void)t.GetField("a0");

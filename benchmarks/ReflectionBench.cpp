@@ -1,3 +1,4 @@
+#include <array>
 #include <iostream>
 
 #include <NGIN/Benchmark.hpp>
@@ -30,18 +31,20 @@ int main()
   using namespace NGIN::Reflection;
   using BenchDemo::Obj;
 
-  auto t = GetType<Obj>();
+  auto t = GetType<Obj>().value();
   auto m_add = t.GetMethod("add").value();
 
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
-    Obj o{5};
-    Any arg{7};
+    auto instance = t.Construct().value();
+    auto field = t.GetField("n").value();
+    (void)field.Write(instance, Value{Any{5}});
+    std::array<Value, 1> args{Value{Any{7}}};
     ctx.start();
     int sum = 0;
     for (int i=0;i<10000;++i) {
-      auto out = m_add.Invoke(&o, &arg, 1).value();
-      sum += out.Cast<int>();
+      auto out = m_add.Invoke(instance, args).value();
+      sum += *out.TryAs<int>();
     }
     ctx.doNotOptimize(sum);
     ctx.stop(); }, "Method Invoke add(int) 10k");
@@ -59,14 +62,14 @@ int main()
 
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
-    Obj o{0};
-    Any val{42};
+    auto instance = t.Construct().value();
+    Value value{Any{42}};
     auto f = t.GetField("n").value();
     ctx.start();
     for (int i=0;i<20000;++i) {
-      (void)f.SetAny(&o, val);
+      (void)f.Write(instance, value);
     }
-    ctx.stop(); }, "Field SetAny int 20k");
+    ctx.stop(); }, "Field Write int 20k");
 
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
@@ -79,13 +82,15 @@ int main()
 
   Benchmark::Register([&](BenchmarkContext &ctx)
                       {
-    Obj o{5};
-    Any arg{7.0}; // conversion from double to int
+    auto instance = t.Construct().value();
+    auto field = t.GetField("n").value();
+    (void)field.Write(instance, Value{Any{5}});
+    std::array<Value, 1> args{Value{7.0}}; // conversion from double to int
     ctx.start();
     int sum = 0;
     for (int i=0;i<10000;++i) {
-      auto out = m_add.Invoke(&o, &arg, 1).value();
-      sum += out.Cast<int>();
+      auto out = m_add.Invoke(instance, args).value();
+      sum += *out.TryAs<int>();
     }
     ctx.doNotOptimize(sum);
     ctx.stop(); }, "Method Invoke add(conv double->int) 10k");
