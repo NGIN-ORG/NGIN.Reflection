@@ -32,6 +32,29 @@ namespace RuntimeDemo
     return lhs * rhs;
   }
 
+  struct Dependency
+  {
+    int value{42};
+  };
+
+  struct Injectable
+  {
+    explicit Injectable(NGIN::Memory::Shared<Dependency> dependencyIn)
+        : dependency(std::move(dependencyIn))
+    {
+    }
+
+    NGIN::Memory::Shared<Dependency> dependency{};
+  };
+
+  inline void NginReflect(NGIN::Reflection::Tag<Injectable>, NGIN::Reflection::TypeBuilder<Injectable> &builder)
+  {
+    builder.SetName("RuntimeDemo::Injectable");
+    builder.InjectableConstructor<
+        NGIN::Reflection::NamedConstructorDependency<
+            NGIN::Memory::Shared<Dependency>, "primary">>();
+  }
+
   inline void NginReflect(NGIN::Reflection::Tag<Entity>, NGIN::Reflection::TypeBuilder<Entity> &builder)
   {
     builder.SetName("RuntimeDemo::Entity");
@@ -146,4 +169,39 @@ TEST_CASE("Unified runtime supports local metadata access and invocation", "[ref
   CHECK(attribute->Name() == "category");
   REQUIRE(std::get_if<std::string>(&attribute->Value()) != nullptr);
   CHECK(*std::get_if<std::string>(&attribute->Value()) == "user");
+}
+
+TEST_CASE("Injectable constructors publish typed bindings and retain ABI ownership", "[reflection][constructor][di]")
+{
+  using namespace NGIN::Reflection;
+
+  ModuleRegistration module{"RuntimeDemo.Injectable.Module"};
+  module.RegisterType<RuntimeDemo::Injectable>();
+  REQUIRE(module.Commit());
+
+  auto type = GetType<RuntimeDemo::Injectable>();
+  REQUIRE(type.has_value());
+  REQUIRE(type->ConstructorCount() == 1);
+  auto constructor = type->ConstructorAt(0);
+  REQUIRE(constructor.has_value());
+  REQUIRE(constructor->IsInjectable());
+  auto binding = constructor->ParameterBindingAt(0);
+  REQUIRE(binding.has_value());
+  CHECK(binding->name == "primary");
+  CHECK_FALSE(binding->optional);
+
+  auto dependency = NGIN::Memory::MakeShared<RuntimeDemo::Dependency>();
+  std::array<Value, 1> arguments{MakeInstanceValue(dependency)};
+  auto instance = constructor->Invoke(arguments);
+  REQUIRE(instance.has_value());
+  auto *injectable = instance->TryAs<RuntimeDemo::Injectable>();
+  REQUIRE(injectable != nullptr);
+  REQUIRE(injectable->dependency);
+  CHECK(injectable->dependency->value == 42);
+
+  Error error{};
+  CHECK_FALSE(UnloadModule(module.Identity(), &error));
+  CHECK(error.code == ErrorCode::Conflict);
+  instance = InstanceRef{};
+  CHECK(UnloadModule(module.Identity(), &error));
 }

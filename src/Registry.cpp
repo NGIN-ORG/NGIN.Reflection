@@ -118,7 +118,10 @@ namespace NGIN::Reflection
         value.release(&value);
     }
 
-    [[nodiscard]] Value FromAbiValue(const NGINReflectionValue &value);
+    [[nodiscard]] Value FromAbiValue(
+        const NGINReflectionValue &value,
+        std::shared_ptr<void> moduleLifetime = {},
+        std::shared_ptr<std::atomic<std::size_t>> liveInstances = {});
 
     [[nodiscard]] std::expected<NGINReflectionValue, Error> ToAbiValue(const Value &value)
     {
@@ -238,18 +241,32 @@ namespace NGIN::Reflection
   {
     struct InstanceStorage
     {
-      explicit InstanceStorage(NGINReflectionInstanceHandle sourceHandle)
-          : handle(sourceHandle)
+      explicit InstanceStorage(
+          NGINReflectionInstanceHandle sourceHandle,
+          std::shared_ptr<void> sourceModuleLifetime = {},
+          std::shared_ptr<std::atomic<std::size_t>> sourceLiveInstances = {},
+          std::shared_ptr<void> sourceParentLifetime = {})
+          : handle(sourceHandle),
+            moduleLifetime(std::move(sourceModuleLifetime)),
+            liveInstances(std::move(sourceLiveInstances)),
+            parentLifetime(std::move(sourceParentLifetime))
       {
+        if (liveInstances)
+          liveInstances->fetch_add(1u, std::memory_order_relaxed);
       }
 
       ~InstanceStorage()
       {
         if (handle.vtable && handle.vtable->release)
           handle.vtable->release(&handle);
+        if (liveInstances)
+          liveInstances->fetch_sub(1u, std::memory_order_relaxed);
       }
 
       NGINReflectionInstanceHandle handle{};
+      std::shared_ptr<void> moduleLifetime{};
+      std::shared_ptr<std::atomic<std::size_t>> liveInstances{};
+      std::shared_ptr<void> parentLifetime{};
     };
 
     SymbolId InternSymbol(std::string_view name)
@@ -540,6 +557,17 @@ namespace NGIN::Reflection
       std::lock_guard lock{registry.mutationMutex};
 
       auto current = std::const_pointer_cast<RegistryState>(registry.state.load());
+      const auto liveModule = std::find_if(
+          current->modules.begin(), current->modules.end(), [&](const auto &module) {
+            return module && module->identity.keyHash == identity.keyHash;
+          });
+      if (liveModule != current->modules.end() && (*liveModule)->liveInstances &&
+          (*liveModule)->liveInstances->load(std::memory_order_relaxed) != 0u)
+      {
+        if (error)
+          *error = Error{ErrorCode::Conflict, "module has live reflected instances"};
+        return false;
+      }
       auto next = std::make_shared<RegistryState>(*current);
       next->generation += 1u;
 
@@ -701,7 +729,10 @@ namespace NGIN::Reflection
       return AttributeView{detail::ViewSymbol(record.name), record.value};
     }
 
-    Value FromAbiValue(const NGINReflectionValue &value)
+    Value FromAbiValue(
+        const NGINReflectionValue &value,
+        std::shared_ptr<void> moduleLifetime,
+        std::shared_ptr<std::atomic<std::size_t>> liveInstances)
     {
       switch (value.kind)
       {
@@ -728,7 +759,11 @@ namespace NGIN::Reflection
       }
       case NGINReflectionValue_Instance:
       {
-        auto storage = std::make_shared<detail::InstanceStorage>(value.instanceValue);
+        auto handle = value.instanceValue;
+        if (handle.vtable && handle.vtable->retain)
+          handle.vtable->retain(&handle);
+        auto storage = std::make_shared<detail::InstanceStorage>(
+            handle, std::move(moduleLifetime), std::move(liveInstances));
         return Value::FromInstance(InstanceRef{storage});
       }
       default:
@@ -782,6 +817,17 @@ namespace NGIN::Reflection
   const NGINReflectionInstanceHandle *InstanceRef::AbiHandle() const noexcept
   {
     return IsValid() ? &m_storage->handle : nullptr;
+  }
+
+  std::shared_ptr<void> ConstInstanceRef::LifetimeToken() const noexcept
+  {
+    return m_storage;
+  }
+
+  InstanceRef AdoptInstance(NGINReflectionInstanceHandle handle, std::shared_ptr<void> parentLifetime)
+  {
+    return InstanceRef{std::make_shared<detail::InstanceStorage>(
+        handle, nullptr, nullptr, std::move(parentLifetime))};
   }
 
   Value::Value(bool value)
@@ -1300,7 +1346,7 @@ namespace NGIN::Reflection
     const auto status = module->tables.fieldReaders[field.readSlot](instance.AbiHandle(), &value);
     if (status.code != NGINReflectionStatus_Ok)
       return std::unexpected(Error{static_cast<ErrorCode>(status.code), ToOwnedString({status.message.data, static_cast<std::size_t>(status.message.size)})});
-    Value out = FromAbiValue(value);
+    Value out = FromAbiValue(value, module->lifetime, module->liveInstances);
     ReleaseAbiValue(value);
     return out;
   }
@@ -1392,7 +1438,7 @@ namespace NGIN::Reflection
     const auto status = module->tables.propertyReaders[property.readSlot](instance.AbiHandle(), &value);
     if (status.code != NGINReflectionStatus_Ok)
       return std::unexpected(Error{static_cast<ErrorCode>(status.code), ToOwnedString({status.message.data, static_cast<std::size_t>(status.message.size)})});
-    Value out = FromAbiValue(value);
+    Value out = FromAbiValue(value, module->lifetime, module->liveInstances);
     ReleaseAbiValue(value);
     return out;
   }
@@ -1523,7 +1569,7 @@ namespace NGIN::Reflection
       ReleaseAbiValue(value);
     if (status.code != NGINReflectionStatus_Ok)
       return std::unexpected(Error{static_cast<ErrorCode>(status.code), ToOwnedString({status.message.data, static_cast<std::size_t>(status.message.size)})});
-    Value out = FromAbiValue(result);
+    Value out = FromAbiValue(result, module->lifetime, module->liveInstances);
     ReleaseAbiValue(result);
     return out;
   }
@@ -1612,7 +1658,53 @@ namespace NGIN::Reflection
       ReleaseAbiValue(value);
     if (status.code != NGINReflectionStatus_Ok)
       return std::unexpected(Error{static_cast<ErrorCode>(status.code), ToOwnedString({status.message.data, static_cast<std::size_t>(status.message.size)})});
-    return InstanceRef{std::make_shared<detail::InstanceStorage>(instance)};
+    return InstanceRef{std::make_shared<detail::InstanceStorage>(
+        instance, module->lifetime, module->liveInstances)};
+  }
+
+  bool Constructor::IsInjectable() const
+  {
+    for (std::size_t index = 0; index < AttributeCount(); ++index)
+    {
+      auto attribute = AttributeAt(index);
+      if (attribute.has_value() && attribute->Name() == detail::InjectableConstructorAttribute)
+      {
+        if (const auto *enabled = std::get_if<bool>(&attribute->Value()))
+          return *enabled;
+      }
+    }
+    return false;
+  }
+
+  std::expected<ConstructorParameterBinding, Error>
+  Constructor::ParameterBindingAt(std::size_t index) const
+  {
+    if (index >= ParameterCount())
+      return std::unexpected(Error{ErrorCode::NotFound, "constructor parameter index out of range"});
+
+    ConstructorParameterBinding binding{};
+    const auto prefix = std::string(detail::ConstructorParameterPrefix) + std::to_string(index);
+    for (std::size_t attributeIndex = 0; attributeIndex < AttributeCount(); ++attributeIndex)
+    {
+      auto attribute = AttributeAt(attributeIndex);
+      if (!attribute.has_value())
+        return std::unexpected(attribute.error());
+      if (attribute->Name() == prefix + ".Name")
+      {
+        if (const auto *name = std::get_if<std::string>(&attribute->Value()))
+          binding.name = *name;
+        else
+          return std::unexpected(Error{ErrorCode::CorruptModule, "constructor dependency name must be a string"});
+      }
+      else if (attribute->Name() == prefix + ".Optional")
+      {
+        if (const auto *optional = std::get_if<bool>(&attribute->Value()))
+          binding.optional = *optional;
+        else
+          return std::unexpected(Error{ErrorCode::CorruptModule, "constructor dependency optional flag must be boolean"});
+      }
+    }
+    return binding;
   }
 
   std::size_t Constructor::AttributeCount() const
@@ -1671,7 +1763,7 @@ namespace NGIN::Reflection
     const auto status = module->tables.upcasters[base.upcastSlot](instance.AbiHandle(), &out);
     if (status.code != NGINReflectionStatus_Ok)
       return std::unexpected(Error{static_cast<ErrorCode>(status.code), ToOwnedString({status.message.data, static_cast<std::size_t>(status.message.size)})});
-    return InstanceRef{std::make_shared<detail::InstanceStorage>(out)};
+    return AdoptInstance(out, instance.LifetimeToken());
   }
 
   ExpectedInstance Base::Downcast(const InstanceRef &instance) const
@@ -1689,7 +1781,7 @@ namespace NGIN::Reflection
     const auto status = module->tables.downcasters[base.downcastSlot](instance.AbiHandle(), &out);
     if (status.code != NGINReflectionStatus_Ok)
       return std::unexpected(Error{static_cast<ErrorCode>(status.code), ToOwnedString({status.message.data, static_cast<std::size_t>(status.message.size)})});
-    return InstanceRef{std::make_shared<detail::InstanceStorage>(out)};
+    return AdoptInstance(out, instance.LifetimeToken());
   }
 
   bool Function::IsValid() const noexcept
@@ -1763,7 +1855,7 @@ namespace NGIN::Reflection
       ReleaseAbiValue(value);
     if (status.code != NGINReflectionStatus_Ok)
       return std::unexpected(Error{static_cast<ErrorCode>(status.code), ToOwnedString({status.message.data, static_cast<std::size_t>(status.message.size)})});
-    Value out = FromAbiValue(result);
+    Value out = FromAbiValue(result, module->lifetime, module->liveInstances);
     ReleaseAbiValue(result);
     return out;
   }

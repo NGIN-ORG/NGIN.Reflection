@@ -76,6 +76,28 @@ The plugin/runtime boundary is now `NGINReflectionModuleApi`.
 
 The removed `NGINReflectionExportV1` / `MergeRegistryV1` blob path is no longer part of the supported API.
 
+## Injectable Constructors
+
+`TypeBuilder<T>::InjectableConstructor<...>()` marks one constructor for tools
+such as the optional NGIN.Core DI bridge. Its parameter bindings are typed:
+
+```cpp
+builder.InjectableConstructor<
+    NGIN::Memory::Shared<IClock>,
+    NGIN::Reflection::NamedConstructorDependency<
+        NGIN::Memory::Shared<ISettings>, "user">,
+    NGIN::Reflection::OptionalConstructorDependency<
+        NGIN::Memory::Shared<ITelemetry>>>();
+```
+
+`Constructor::IsInjectable()` and `ParameterBindingAt()` expose the same
+metadata for local and imported modules. Constructor instances retain their ABI
+owner, and `UnloadModule()` rejects unloading a module while one of its
+reflected instances is alive.
+
+MetaGen emits this same builder call for `NGIN_INJECT` constructors and reads
+named or optional bindings from `NGIN_DEPENDENCY(...)` parameters.
+
 ## Build Options
 
 Main CMake options:

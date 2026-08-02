@@ -59,6 +59,7 @@ namespace NGIN::Reflection
     [[nodiscard]] TypeIdentity Identity() const noexcept;
     [[nodiscard]] const void *Data() const noexcept;
     [[nodiscard]] const NGINReflectionInstanceHandle *AbiHandle() const noexcept;
+    [[nodiscard]] std::shared_ptr<void> LifetimeToken() const noexcept;
 
     template <class T>
     [[nodiscard]] const T *TryAs() const noexcept

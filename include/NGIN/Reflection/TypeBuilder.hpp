@@ -1,7 +1,9 @@
 #pragma once
 
+#include <NGIN/Memory/SmartPointers.hpp>
 #include <NGIN/Reflection/Registry.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cstring>
 #include <string>
@@ -11,8 +13,87 @@
 
 namespace NGIN::Reflection
 {
+  template <std::size_t N>
+  struct FixedString
+  {
+    char value[N]{};
+
+    constexpr FixedString(const char (&text)[N])
+    {
+      std::copy_n(text, N, value);
+    }
+
+    [[nodiscard]] constexpr std::string_view View() const noexcept
+    {
+      return {value, N - 1u};
+    }
+  };
+
+  template <class T>
+  struct ConstructorDependency
+  {
+    using Type = T;
+  };
+
+  template <class T>
+  struct OptionalConstructorDependency
+  {
+    using Type = T;
+  };
+
+  template <class T, FixedString Name>
+  struct NamedConstructorDependency
+  {
+    using Type = T;
+    inline static constexpr auto name = Name;
+  };
+
+  template <class T, FixedString Name>
+  struct NamedOptionalConstructorDependency
+  {
+    using Type = T;
+    inline static constexpr auto name = Name;
+  };
+
   namespace detail
   {
+    template <class T>
+    struct ConstructorDependencyTraits
+    {
+      using Type = T;
+      static constexpr bool optional = false;
+      [[nodiscard]] static constexpr std::string_view Name() noexcept { return {}; }
+    };
+
+    template <class T>
+    struct ConstructorDependencyTraits<ConstructorDependency<T>> : ConstructorDependencyTraits<T>
+    {
+    };
+
+    template <class T>
+    struct ConstructorDependencyTraits<OptionalConstructorDependency<T>>
+    {
+      using Type = T;
+      static constexpr bool optional = true;
+      [[nodiscard]] static constexpr std::string_view Name() noexcept { return {}; }
+    };
+
+    template <class T, FixedString NameValue>
+    struct ConstructorDependencyTraits<NamedConstructorDependency<T, NameValue>>
+    {
+      using Type = T;
+      static constexpr bool optional = false;
+      [[nodiscard]] static constexpr std::string_view Name() noexcept { return NameValue.View(); }
+    };
+
+    template <class T, FixedString NameValue>
+    struct ConstructorDependencyTraits<NamedOptionalConstructorDependency<T, NameValue>>
+    {
+      using Type = T;
+      static constexpr bool optional = true;
+      [[nodiscard]] static constexpr std::string_view Name() noexcept { return NameValue.View(); }
+    };
+
     inline constexpr NGINReflectionStatus OkStatus() noexcept
     {
       return NGINReflectionStatus{NGINReflectionStatus_Ok, {nullptr, 0}};
@@ -61,6 +142,16 @@ namespace NGIN::Reflection
     {
       return MakeTypeReference(NGIN::Meta::TypeName<std::remove_cvref_t<T>>::qualifiedName);
     }
+
+    template <class T>
+    struct IsSharedPointer : std::false_type
+    {
+    };
+
+    template <class T, NGIN::Memory::AllocatorConcept Alloc>
+    struct IsSharedPointer<NGIN::Memory::Shared<T, Alloc>> : std::true_type
+    {
+    };
 
     template <class T>
     [[nodiscard]] inline std::expected<T, const char *> ConvertScalarValue(const NGINReflectionValue &value)
@@ -120,6 +211,17 @@ namespace NGIN::Reflection
       }
       else
       {
+        if constexpr (IsSharedPointer<U>::value)
+        {
+          if (value.kind == NGINReflectionValue_Empty)
+            return U{};
+        }
+        if (value.kind == NGINReflectionValue_Instance && value.instanceValue.vtable)
+        {
+          const auto *instance = static_cast<const U *>(value.instanceValue.vtable->getConst(&value.instanceValue));
+          if (instance)
+            return *instance;
+        }
         return std::unexpected("unsupported argument type");
       }
     }
@@ -644,6 +746,30 @@ namespace NGIN::Reflection
       return ConstructorInvokeThunk<T, std::tuple<Args...>>(arguments, argumentCount, outInstance, std::index_sequence_for<Args...>{});
     }
 
+    template <class T, class... TBindings>
+    void AppendInjectableConstructor(TypeBuildAnchor anchor)
+    {
+      auto &record = GetTypeRecord(anchor);
+      ConstructorRecord ctor{};
+      ctor.constructSlot = static_cast<std::uint32_t>(anchor.module->tables.constructors.size());
+      anchor.module->tables.constructors.push_back(
+          &ConstructorThunk<T, typename ConstructorDependencyTraits<TBindings>::Type...>);
+      (ctor.parameters.push_back(MakeTypeReference<typename ConstructorDependencyTraits<TBindings>::Type>()), ...);
+      ctor.attributes.push_back(AttributeRecord{InternSymbol(InjectableConstructorAttribute), true});
+
+      std::size_t index = 0;
+      ([&]
+       {
+         using Traits = ConstructorDependencyTraits<TBindings>;
+         const auto prefix = std::string(ConstructorParameterPrefix) + std::to_string(index++);
+         if (!Traits::Name().empty())
+           ctor.attributes.push_back(AttributeRecord{InternSymbol(prefix + ".Name"), std::string(Traits::Name())});
+         if constexpr (Traits::optional)
+           ctor.attributes.push_back(AttributeRecord{InternSymbol(prefix + ".Optional"), true});
+       }(), ...);
+      record.constructors.push_back(std::move(ctor));
+    }
+
     template <class Return, class Tuple, std::size_t... I>
     NGINReflectionStatus FunctionInvokeChecked(const ModuleIdentity &moduleIdentity,
                                                const NGINReflectionValue *arguments,
@@ -694,6 +820,16 @@ namespace NGIN::Reflection
                                                       std::make_index_sequence<N>{});
     }
   } // namespace detail
+
+  /// @brief Box a typed constructor argument in an ABI-owned reflection value.
+  template <class T>
+  [[nodiscard]] Value MakeInstanceValue(T value)
+  {
+    using ValueType = std::remove_cvref_t<T>;
+    auto handle = detail::MakeOwnedHandle<ValueType>(
+        std::move(value), detail::SyntheticTypeIdentity<ValueType>(detail::RuntimeModuleIdentity()));
+    return Value::FromInstance(AdoptInstance(handle));
+  }
 
   template <class T>
   class TypeBuilder
@@ -800,6 +936,14 @@ namespace NGIN::Reflection
       m_anchor.module->tables.constructors.push_back(&detail::ConstructorThunk<T, Args...>);
       (ctor.parameters.push_back(detail::MakeTypeReference<Args>()), ...);
       record.constructors.push_back(std::move(ctor));
+      return *this;
+    }
+
+    /// @brief Register the one constructor intended for dependency injection.
+    template <class... TBindings>
+    TypeBuilder &InjectableConstructor()
+    {
+      detail::AppendInjectableConstructor<T, TBindings...>(m_anchor);
       return *this;
     }
 

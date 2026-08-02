@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <atomic>
 #include <expected>
 #include <memory>
 #include <optional>
@@ -52,6 +53,13 @@ namespace NGIN::Reflection
     bool m_valid{false};
   };
 
+  /// @brief Typed dependency binding attached to an injectable constructor parameter.
+  struct ConstructorParameterBinding
+  {
+    std::string name{};
+    bool optional{false};
+  };
+
   class EnumValue
   {
   public:
@@ -78,6 +86,9 @@ namespace NGIN::Reflection
 
   namespace detail
   {
+    inline constexpr std::string_view InjectableConstructorAttribute = "NGIN.Reflection.Injectable";
+    inline constexpr std::string_view ConstructorParameterPrefix = "NGIN.Reflection.Parameter.";
+
     struct TypeReference
     {
       SymbolId qualifiedName{};
@@ -189,6 +200,8 @@ namespace NGIN::Reflection
       ModuleCallTables tables;
       bool imported{false};
       std::shared_ptr<void> lifetime;
+      std::shared_ptr<std::atomic<std::size_t>> liveInstances{
+          std::make_shared<std::atomic<std::size_t>>(0u)};
     };
 
     struct TypeBinding
@@ -374,6 +387,9 @@ namespace NGIN::Reflection
     [[nodiscard]] std::size_t ParameterCount() const;
     [[nodiscard]] std::string_view ParameterTypeName(std::size_t index) const;
     [[nodiscard]] ExpectedInstance Invoke(std::span<const Value> arguments) const;
+    [[nodiscard]] bool IsInjectable() const;
+    [[nodiscard]] std::expected<ConstructorParameterBinding, Error>
+    ParameterBindingAt(std::size_t index) const;
     [[nodiscard]] std::size_t AttributeCount() const;
     [[nodiscard]] ExpectedAttribute AttributeAt(std::size_t index) const;
 
@@ -485,6 +501,9 @@ namespace NGIN::Reflection
   [[nodiscard]] std::optional<Type> FindType(std::string_view qualifiedName);
   [[nodiscard]] ExpectedFunction GetFunction(std::string_view name);
   [[nodiscard]] std::optional<Function> FindFunction(std::string_view name);
+  [[nodiscard]] InstanceRef AdoptInstance(
+      NGINReflectionInstanceHandle handle,
+      std::shared_ptr<void> parentLifetime = {});
 
   template <class T>
   [[nodiscard]] ExpectedType GetType()

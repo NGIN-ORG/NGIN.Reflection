@@ -129,6 +129,32 @@ TEST_CASE("Imported module API exposes the same callable surface as local regist
   REQUIRE(ImportModule(moduleA, &error));
   REQUIRE(ImportModule(moduleB, &error));
 
+  auto offsetterType = GetType("Interop::Offsetter");
+  REQUIRE(offsetterType.has_value());
+  REQUIRE(offsetterType->ConstructorCount() == 1);
+  auto offsetterConstructor = offsetterType->ConstructorAt(0);
+  REQUIRE(offsetterConstructor.has_value());
+  REQUIRE(offsetterConstructor->IsInjectable());
+  auto offsetBinding = offsetterConstructor->ParameterBindingAt(0);
+  REQUIRE(offsetBinding.has_value());
+  CHECK(offsetBinding->name == "offset");
+
+  auto offset = NGIN::Memory::MakeShared<int>(9);
+  std::array<Value, 1> offsetArguments{MakeInstanceValue(offset)};
+  auto offsetter = offsetterConstructor->Invoke(offsetArguments);
+  REQUIRE(offsetter.has_value());
+  auto addOffset = offsetterType->GetMethod("AddOffset");
+  REQUIRE(addOffset.has_value());
+  std::array<Value, 1> offsetInput{Value{std::int64_t{4}}};
+  auto offsetResult = addOffset->Invoke(*offsetter, offsetInput);
+  REQUIRE(offsetResult.has_value());
+  REQUIRE(offsetResult->TryAs<std::int64_t>() != nullptr);
+  CHECK(*offsetResult->TryAs<std::int64_t>() == 13);
+
+  Error unloadError{};
+  CHECK_FALSE(UnloadModule(offsetterType->Identity().module, &unloadError));
+  CHECK(unloadError.code == ErrorCode::Conflict);
+
   auto adderType = GetType("Interop::Adder");
   REQUIRE(adderType.has_value());
   auto adder = adderType->Construct();
@@ -152,4 +178,12 @@ TEST_CASE("Imported module API exposes the same callable surface as local regist
   REQUIRE(product.has_value());
   REQUIRE(product->TryAs<std::int64_t>() != nullptr);
   CHECK((*product->TryAs<std::int64_t>()) == 12);
+
+  const auto pluginAIdentity = offsetterType->Identity().module;
+  const auto pluginBIdentity = multiplierType->Identity().module;
+  offsetter = InstanceRef{};
+  adder = InstanceRef{};
+  multiplier = InstanceRef{};
+  REQUIRE(UnloadModule(pluginAIdentity, &unloadError));
+  REQUIRE(UnloadModule(pluginBIdentity, &unloadError));
 }
