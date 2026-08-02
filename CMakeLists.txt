@@ -93,8 +93,10 @@ endif()
 
 add_library(NGIN::Reflection ALIAS NGIN.Reflection)
 
-# Add -latomic if needed
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+# GCC and Clang targets on Linux may require libatomic. Windows and Apple
+# toolchains provide their atomic runtime through the platform toolchain.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+   CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_link_libraries(NGIN.Reflection PUBLIC atomic)
 endif()
 
