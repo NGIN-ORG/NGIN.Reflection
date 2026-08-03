@@ -1,127 +1,57 @@
 # NGIN.Reflection
 
-NGIN.Reflection is a runtime reflection system for modern C++23 with one model for both local and imported modules.
+`NGIN.Reflection` is a C++23 runtime reflection library with one descriptor
+model for local and imported modules.
 
-The current library is built around three ideas:
+It supports fields, properties, methods, constructors, enums, base
+relationships, free functions, attributes, and module import or unload.
+Reflection is explicit: types opt in through `TypeBuilder<T>` or generated
+builder code.
 
-- reflection is explicit and authored, not discovered
-- local and imported modules expose the same descriptor surface
-- the plugin boundary is a plain C ABI with explicit ownership
-
-## What It Provides
-
-NGIN.Reflection supports:
-
-- fields
-- properties
-- methods
-- constructors
-- enums
-- base relationships
-- free functions
-- attributes
-- module import, unload, and replace
-
-The public C++ layer uses `Value`, `ValueView`, `ConstValueView`, `InstanceRef`, and `ConstInstanceRef` instead of exposing raw ABI structs directly.
-
-## Authoring Model
-
-Types are still described with an explicit `TypeBuilder<T>` customization point:
+## Example
 
 ```cpp
 #include <NGIN/Reflection/Reflection.hpp>
 
-namespace Demo
-{
-  struct User
-  {
-    int id{1};
-    std::string name{"Ada"};
+struct User {
+    int id{};
 
     friend void NginReflect(NGIN::Reflection::Tag<User>,
-                            NGIN::Reflection::TypeBuilder<User> &builder)
-    {
-      builder.SetName("Demo::User");
-      builder.Field<&User::id>("id");
-      builder.Field<&User::name>("name");
+                            NGIN::Reflection::TypeBuilder<User>& builder) {
+        builder.SetName("User");
+        builder.Field<&User::id>("id");
     }
-  };
-}
+};
 
-int main()
-{
-  using namespace NGIN::Reflection;
-
-  ModuleRegistration module{"Demo.Reflection"};
-  module.RegisterType<Demo::User>();
-  module.Commit();
-
-  auto type = GetType("Demo::User").value();
-  auto instance = type.Construct().value();
-  auto field = type.GetField("name").value();
-  auto value = field.Read(instance).value();
-  return value.TryAs<std::string>() ? 0 : 1;
+int main() {
+    NGIN::Reflection::ModuleRegistration module{"App"};
+    module.RegisterType<User>();
+    module.Commit();
+    return NGIN::Reflection::GetType("User") ? 0 : 1;
 }
 ```
 
-## ABI Model
+`NGIN.Reflection.MetaGen` can emit the same registration model from annotated
+headers. See [Hello.Reflection](../../../Examples/Hello.Reflection).
 
-The plugin/runtime boundary is now `NGINReflectionModuleApi`.
+## Modules and ABI
 
-- Export entrypoint: `NGINReflectionGetModuleApi`
-- Value transport: `NGINReflectionValue`
-- Object transport: `NGINReflectionInstanceHandle`
-- Import path: `ImportModule`
-- Unload path: `UnloadModule`
+Imported modules expose a plain C ABI through `NGINReflectionModuleApi` and
+`NGINReflectionGetModuleApi`. Reflection values and instances retain their
+owning module; unloading is rejected while reflected instances remain alive.
 
-The removed `NGINReflectionExportV1` / `MergeRegistryV1` blob path is no longer part of the supported API.
+Binary compatibility is not promised before 1.0. Treat plugin modules as
+trusted native code built for a compatible ABI.
 
-## Injectable Constructors
-
-`TypeBuilder<T>::InjectableConstructor<...>()` marks one constructor for tools
-such as the optional NGIN.Core DI bridge. Its parameter bindings are typed:
-
-```cpp
-builder.InjectableConstructor<
-    NGIN::Memory::Shared<IClock>,
-    NGIN::Reflection::NamedConstructorDependency<
-        NGIN::Memory::Shared<ISettings>, "user">,
-    NGIN::Reflection::OptionalConstructorDependency<
-        NGIN::Memory::Shared<ITelemetry>>>();
-```
-
-`Constructor::IsInjectable()` and `ParameterBindingAt()` expose the same
-metadata for local and imported modules. Constructor instances retain their ABI
-owner, and `UnloadModule()` rejects unloading a module while one of its
-reflected instances is alive.
-
-MetaGen emits this same builder call for `NGIN_INJECT` constructors and reads
-named or optional bindings from `NGIN_DEPENDENCY(...)` parameters.
-
-## Build Options
-
-Main CMake options:
-
-- `NGIN_REFLECTION_BUILD_TESTS` default `ON`
-- `NGIN_REFLECTION_BUILD_EXAMPLES` default `OFF`
-- `NGIN_REFLECTION_BUILD_BENCHMARKS` default `OFF`
-- `NGIN_REFLECTION_ENABLE_ABI` default `ON`
-
-## Typical Local Build
+## Build and test
 
 ```bash
 cmake -S . -B build \
   -DNGIN_REFLECTION_BUILD_TESTS=ON \
-  -DNGIN_REFLECTION_BUILD_EXAMPLES=ON \
-  -DNGIN_REFLECTION_BUILD_BENCHMARKS=OFF \
-  -DNGIN_REFLECTION_ENABLE_ABI=ON
-
-cmake --build build -j
+  -DNGIN_REFLECTION_BUILD_EXAMPLES=ON
+cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-## Read Next
-
-- [Contribution Guide](AGENTS.md)
-- [Architecture Notes](docs/Architecture.md)
-- `include/NGIN/Reflection/`
+See the [architecture notes](docs/Architecture.md) and
+[contribution guide](AGENTS.md).
