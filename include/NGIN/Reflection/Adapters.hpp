@@ -4,7 +4,7 @@
 #include <NGIN/Primitives.hpp>
 #include <NGIN/Utilities/Any.hpp>
 #include <NGIN/Containers/Vector.hpp>
-#include <NGIN/Containers/HashMap.hpp>
+#include <NGIN/Containers/FlatHashMap.hpp>
 
 #include <type_traits>
 #include <tuple>
