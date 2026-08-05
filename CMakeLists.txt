@@ -23,7 +23,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Ensure NGIN.Base subproject keeps quiet stuff off here
 set(NGIN_BASE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(NGIN_BASE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(NGIN_BASE_DEVELOPMENT_MODE OFF CACHE BOOL "" FORCE)
 set(NGIN_BASE_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
 
 #-------------------------------------------------------------------------------
