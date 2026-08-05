@@ -71,7 +71,7 @@ target_include_directories(NGIN.Reflection
 
 target_link_libraries(NGIN.Reflection
   PUBLIC
-    NGIN::Base
+    NGIN::Base::Foundation
 )
 
 # Platform and export macros (avoid generator expression on TYPE without target)

@@ -54,7 +54,7 @@ if(NGIN_REFLECTION_ENABLE_ABI)
     ${_reflection_root_dir}/src/Registry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Interop/PluginA.cpp)
   target_include_directories(InteropPluginA PRIVATE ${_reflection_root_dir}/include)
-  target_link_libraries(InteropPluginA PRIVATE NGIN::Base)
+  target_link_libraries(InteropPluginA PRIVATE NGIN::Base::Foundation)
   target_compile_features(InteropPluginA PRIVATE cxx_std_23)
   target_compile_definitions(InteropPluginA PRIVATE NGIN_REFLECTION_ENABLE_ABI=1 NGIN_REFLECTION_EXPORTS)
 
@@ -62,7 +62,7 @@ if(NGIN_REFLECTION_ENABLE_ABI)
     ${_reflection_root_dir}/src/Registry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Interop/PluginB.cpp)
   target_include_directories(InteropPluginB PRIVATE ${_reflection_root_dir}/include)
-  target_link_libraries(InteropPluginB PRIVATE NGIN::Base)
+  target_link_libraries(InteropPluginB PRIVATE NGIN::Base::Foundation)
   target_compile_features(InteropPluginB PRIVATE cxx_std_23)
   target_compile_definitions(InteropPluginB PRIVATE NGIN_REFLECTION_ENABLE_ABI=1 NGIN_REFLECTION_EXPORTS)
 
