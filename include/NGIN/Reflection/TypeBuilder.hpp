@@ -533,7 +533,6 @@ namespace NGIN::Reflection
     {
       using Traits = MemberPointerTraits<decltype(MemberPtr)>;
       using Class = typename Traits::Class;
-      using Member = typename Traits::Member;
 
       if (!instance || !outValue || !instance->vtable)
         return MakeStatus(NGINReflectionStatus_InvalidArgument, "invalid field read");
@@ -630,7 +629,6 @@ namespace NGIN::Reflection
     template <class Class, class Return, class Tuple, std::size_t... I>
     [[nodiscard]] inline NGINReflectionStatus InvokeMethodChecked(const NGINReflectionInstanceHandle *instance,
                                                                   const NGINReflectionValue *arguments,
-                                                                  std::uint64_t argumentCount,
                                                                   NGINReflectionValue *outValue,
                                                                   Return (Class::*fn)(std::tuple_element_t<I, Tuple>...),
                                                                   std::index_sequence<I...>)
@@ -657,7 +655,6 @@ namespace NGIN::Reflection
     template <class Class, class Return, class Tuple, std::size_t... I>
     [[nodiscard]] inline NGINReflectionStatus InvokeConstMethodChecked(const NGINReflectionInstanceHandle *instance,
                                                                        const NGINReflectionValue *arguments,
-                                                                       std::uint64_t argumentCount,
                                                                        NGINReflectionValue *outValue,
                                                                        Return (Class::*fn)(std::tuple_element_t<I, Tuple>...) const,
                                                                        std::index_sequence<I...>)
@@ -711,9 +708,9 @@ namespace NGIN::Reflection
         return MakeStatus(NGINReflectionStatus_InvalidArgument, "argument mismatch");
 
       if constexpr (Traits::IsConst)
-        return InvokeConstMethodChecked<Class, Return, ArgsTuple>(instance, arguments, argumentCount, outValue, MethodPtr, std::make_index_sequence<N>{});
+        return InvokeConstMethodChecked<Class, Return, ArgsTuple>(instance, arguments, outValue, MethodPtr, std::make_index_sequence<N>{});
       else
-        return InvokeMethodChecked<Class, Return, ArgsTuple>(instance, arguments, argumentCount, outValue, MethodPtr, std::make_index_sequence<N>{});
+        return InvokeMethodChecked<Class, Return, ArgsTuple>(instance, arguments, outValue, MethodPtr, std::make_index_sequence<N>{});
     }
 
     template <class T, class Tuple, std::size_t... I>
@@ -773,7 +770,6 @@ namespace NGIN::Reflection
     template <class Return, class Tuple, std::size_t... I>
     NGINReflectionStatus FunctionInvokeChecked(const ModuleIdentity &moduleIdentity,
                                                const NGINReflectionValue *arguments,
-                                               std::uint64_t argumentCount,
                                                NGINReflectionValue *outValue,
                                                Return (*fn)(std::tuple_element_t<I, Tuple>...),
                                                std::index_sequence<I...>)
@@ -814,7 +810,6 @@ namespace NGIN::Reflection
 
       return FunctionInvokeChecked<Return, ArgsTuple>(RuntimeModuleIdentity(),
                                                       arguments,
-                                                      argumentCount,
                                                       outValue,
                                                       FunctionPtr,
                                                       std::make_index_sequence<N>{});
