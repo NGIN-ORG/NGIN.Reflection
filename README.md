@@ -32,7 +32,8 @@ int main() {
 ```
 
 `NGIN.Reflection.MetaGen` can emit the same registration model from annotated
-headers. See [Hello.Reflection](../../../Examples/Hello.Reflection).
+headers without libclang or another compiler-library dependency. See
+[Hello.Reflection](../../../Examples/Hello.Reflection).
 
 ## Modules and ABI
 
