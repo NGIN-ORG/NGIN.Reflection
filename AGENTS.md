@@ -1,182 +1,67 @@
-# NGIN.Reflection – CoPilot / LLM Contribution Instructions
+# NGIN.Reflection Agent Guide
 
-Guidance for automated and human contributors to extend the Reflection library safely, consistently, and sustainably.
+NGIN.Reflection is a C++23 **runtime** reflection library built on NGIN.Base.
+Types opt in explicitly through `TypeBuilder<T>` (hand-written `NginReflect`
+or code emitted by `NGIN.Reflection.MetaGen`), register into immutable registry
+snapshots, and can be exported/imported across modules through a plain C ABI.
 
----
+It is consumed by the NGIN workspace through `Packages/NGIN.Reflection` and is
+also a standalone repository (a git submodule of NGIN). When working inside the
+NGIN workspace, the root `AGENTS.md` also applies.
 
-## Purpose & Scope
+## Source of Truth
 
-NGIN.Reflection provides small, composable utilities around type information and reflection‑adjacent facilities that build on NGIN.Base (e.g., `NGIN::Meta::TypeName`). It is intended to be lightweight, mostly header‑first, and safe to consume as a library target `NGIN::Reflection` from CMake.
+- `docs/Architecture.md` — identity model, snapshots, descriptor surface, ABI,
+  call dispatch, and module replacement rules. Read it before changing the
+  registry, ABI, or descriptor shapes.
+- Public headers in `include/NGIN/Reflection/`; implementation in `src/`.
+- Tests in `tests/Reflection/` (behavior) and `tests/Interop/` (host + plugin
+  modules across the ABI).
 
-This doc adapts the conventions from NGIN.Base to this repository’s structure and goals.
+## Invariants to Preserve
 
----
+- One descriptor model: imported modules are translated into the same shape as
+  local registration. Don't add a separate "imported" metadata path.
+- Registry snapshots are immutable; commits copy, apply, and swap. Public handles
+  carry the registry generation and must be invalidated by module replace/unload.
+- Same `ModuleIdentity` replaces its prior contribution; a different module
+  publishing the same canonical qualified type name is a conflict and is rejected.
+- Unloading is rejected while reflected instances from that module are alive.
+- The cross-module boundary is `NGINReflectionModuleApi` (`ABI.hpp`): plain C,
+  module-owned descriptor/call tables, explicit release hooks for owned values.
+  Changing ABI structs or semantics needs tests in `tests/Interop/` and a note
+  in `docs/Architecture.md`. Binary compatibility is not promised before 1.0.
+- Lookups report failure through `std::expected<..., Error>` (`ExpectedType`,
+  `ExpectedMethod`, …); keep that pattern for new queries.
+- Generated MetaGen output must keep compiling against the public
+  `TypeBuilder` API; changes there affect `Examples/Hello.Reflection`.
 
-## Code Philosophy
+## Code Style
 
-High‑level principles for this repo:
+No local `.clang-format`; match the existing files: 2-space indent, braces on
+their own line, `PascalCase` types and functions, `m_`/`s_` members, `camelCase`
+locals, internals in `NGIN::Reflection::detail`. Export non-inline symbols with
+`NGIN_REFLECTION_API` (`Export.hpp`). Mark `noexcept` only when guaranteed.
 
-1. Header‑first APIs: Prefer templates, `constexpr`/`consteval`, and inline functions in headers under `include/NGIN/Reflection/`. Use `.cpp` only when an ABI boundary or platform hook is required.
-2. Modern C++: Require C++23 and prefer compile‑time computation where it enhances clarity and performance.
-3. ODR / ABI safety: Keep non‑inline symbols minimal. When you must expose non‑inline functions, annotate with `NGIN_REFLECTION_API` (see `include/NGIN/Reflection/Export.hpp`).
-4. Determinism: Avoid hidden global state. Favor pure, stateless helpers.
-5. Allocation discipline: Avoid heap allocations in core logic.
-6. Exception policy: Throw only standard exceptions. Use `noexcept` when accurate. Use assertions for programmer errors.
-7. Zero surprise: Follow existing patterns and naming in this repo and in NGIN.Base.
-8. Evolvability: Prefer additive changes. Clearly mark experimental bits in comments or separate headers.
+## Dependencies
 
----
+Standard library and NGIN.Base only. NGIN.Base is found via
+`find_package(NGINBase)` or falls back to `NGIN_BASE_SOURCE_DIR` / the sibling
+`../NGIN.Base` source tree. Tests use Catch2 via CPM.
 
-## Code Style & Namespacing
+## Verification
 
-Namespaces:
-- All public code under `NGIN::Reflection`. Use `NGIN::Reflection::detail` for implementation internals in headers. Avoid anonymous namespaces in headers.
-
-Formatting & Layout:
-- Respect repository `.clang-format`. Re‑run after edits.
-- 4 spaces, no tabs; lines ≤ ~120 chars when feasible.
-- Brace on same line: `constexpr auto Foo() {` / `class Bar {`.
-
-Qualifiers & Keywords:
-- Prefer `constexpr`/`consteval`/`constinit` when semantically correct.
-- Mark non‑throwing functions `noexcept` only when guaranteed.
-- Mark derived virtuals `final`/`override` explicitly when present (rare here).
-
-Naming:
-- Types/templates: `PascalCase` (e.g., `MemberInfo`, `TypeDescriptor`).
-- Functions/methods: `PascalCase` (e.g., `Describe`, `VisitFields`).
-- Members: `m_foo`; statics: `s_bar`; locals: `camelCase`.
-- Concepts/traits: `...Concept` / `...Traits` when clarifying.
-
----
-
-## Library Structure
-
-- Public headers: `include/NGIN/Reflection/*.hpp` (e.g., `Reflection.hpp`, `Export.hpp`).
-- Implementation `.cpp`: only when crossing ABI boundaries; annotate exports with `NGIN_REFLECTION_API`.
-- CMake target: `NGIN::Reflection` (alias for `NGIN.Reflection`).
-- Platform defines: injected by `CMakeLists.txt` (`NGIN_PLATFORM` and `NGIN_REFLECTION_*`).
-
-Dependency on NGIN.Base:
-- Linked publicly. You may use facilities like `NGIN::Meta::TypeName` in public headers where it does not inflate compile times excessively.
-- Do not add new runtime dependencies beyond the standard library and NGIN.Base without prior discussion.
-
----
-
-## Build & Options
-
-Top‑level options in this repo:
-- `NGIN_REFLECTION_BUILD_TESTS` (ON by default)
-- `NGIN_REFLECTION_BUILD_EXAMPLES` (OFF by default)
-
-NGIN.Base resolution in `CMakeLists.txt`:
-1. Try `find_package(NGINBase CONFIG QUIET)`.
-2. Fallback to sibling source `../NGIN.Base` or `NGIN_BASE_SOURCE_DIR` if provided.
-
-Install/export is configured; consumers can use `find_package(NGINReflection)` when installed.
-
----
-
-## Tests
-
-- Framework: Catch2 v3 via CPM (see `tests/CMakeLists.txt`).
-- Each `.cpp` becomes its own test executable linking `Catch2::Catch2WithMain`.
-- Test discovery: `catch_discover_tests(...)` registers cases with CTest alongside the owning target.
-- Naming: use descriptive `TEST_CASE` strings and optional tags, e.g.:
-
-```cpp
-#include <catch2/catch_test_macros.hpp>
-#include <NGIN/Reflection/Reflection.hpp>
-
-TEST_CASE("LibraryName returns module identifier", "[NGIN::Reflection]") {
-  CHECK(NGIN::Reflection::LibraryName() == std::string_view{"NGIN.Reflection"});
-}
+```bash
+cmake --preset tests
+cmake --build --preset tests-debug
+ctest --test-dir build/tests -C Debug --output-on-failure
 ```
 
-Minimum coverage for new features:
-- Positive and negative cases.
-- Boundary conditions (empty, moved‑from, max sizes, alignment), and error paths.
-- If performance sensitive, add a benchmark to NGIN.Base or a local `benchmarks/` (kept out of public headers).
+Options: `NGIN_REFLECTION_BUILD_TESTS` (ON), `NGIN_REFLECTION_BUILD_EXAMPLES`,
+`NGIN_REFLECTION_BUILD_BENCHMARKS` (OFF). Benchmarks live in `benchmarks/`.
 
-Running tests (examples):
-- Configure with presets or standard CMake, then `ctest --output-on-failure` in the build tree.
-
----
-
-## Patterns & APIs (Reflection‑specific)
-
-- Prefer compile‑time descriptions: trait types, constexpr tables, and CTAD helpers over runtime registries.
-- If adding utilities like field enumeration or attribute tagging, keep APIs composable and opt‑in (SFINAE / concepts).
-- Avoid RTTI‑heavy designs; prefer traits/concepts and constexpr dispatch.
-- Keep cross‑module types serializable only when absolutely necessary; prefer exposing metadata accessors.
-
-Export/visibility:
-- Use `NGIN_REFLECTION_API` for non‑inline functions intended for external linkage.
-- Keep templates and small inline functions in headers; avoid anonymous namespaces in headers.
-
----
-
-## Performance & Quality
-
-- Move work to compile time when it doesn’t obscure intent.
-- Avoid dynamic allocation in hot paths; use SBO/stack.
-- Keep trivial functions inline; guard `noexcept` accuracy.
-- Minimize includes in public headers; forward declare where possible.
-
----
-
-## Documentation
-
-- Add brief doxygen‑style summaries for public types/functions.
-- Document invariants and non‑obvious rationale rather than restating code.
-- If adding a substantial module, include a focused README next to headers, e.g. `include/NGIN/Reflection/README.md` with:
-  1) Purpose & Scope, 2) Key Types/Concepts, 3) Examples, 4) Performance Notes, 5) Extension Points, 6) Test Guidance.
-
----
-
-## Adding New Features (Checklist)
-
-1. Correct namespace and header placement under `include/NGIN/Reflection/`.
-2. Keep public headers lean; forward declare where possible.
-3. Tests: add positive + negative cases; include edge coverage.
-4. Examples: extend `examples/QuickStart` if it improves discoverability.
-5. Formatting & static analysis: clang‑format; clang‑tidy as applicable; no new warnings.
-6. Ensure `noexcept`/exception‑safety guarantees are correct.
-7. Avoid dependency creep beyond NGIN.Base and the standard library.
-8. If adding non‑inline functions, annotate with `NGIN_REFLECTION_API` and justify the ABI boundary in PR notes.
-
----
-
-## Commit / PR Guidance
-
-Title: imperative, concise (e.g., "Add TypeDescriptor for aggregates").
-
-Body should cover:
-- Motivation / problem
-- Solution summary (algorithms, key types)
-- Tests & verification (mention benchmarks if any)
-- Follow‑ups / limitations
-
-Diff hygiene:
-- Keep changes minimal; avoid mixed refactors with functional changes.
-- Prefer introducing helpers over duplicating logic.
-
----
-
-## AI & Automated Suggestions
-
-- Do not widen or tighten exception specs without proof.
-- Preserve observable behavior unless changing it is the goal.
-- Keep symbol visibility correct; do not introduce global singletons.
-- Align with NGIN.Base conventions for naming and structure.
-
----
-
-## License
-
-Apache 2.0 (see `LICENSE` in the root of the organization’s repositories where applicable). Preserve license notices and attribution.
-
----
-
-Adhere to these guidelines to keep NGIN.Reflection consistent, safe, and maintainable.
-
+- New behavior needs success and failure tests (missing names, conflicts,
+  stale handles, overload ambiguity, unload with live instances).
+- ABI or module lifecycle changes must exercise `tests/Interop/`.
+- Changes visible to NGIN consumers or MetaGen: also validate
+  `Examples/Hello.Reflection/` from the workspace per the root `AGENTS.md`.
